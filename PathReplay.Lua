@@ -8,47 +8,111 @@ local FileNameForSave = "StoredPath.txt"
 local PathDirSaveds = filesystem.scripts_dir().."Paths\\"
 local LoadedFileName = FileNameForSave
 
-local FileListPTR = nil
+filesystem.mkdirs(filesystem.scripts_dir().."Paths")
 
+local GlobalSpd = 20
+
+local InterpolationFactor = 10.0
+
+local FileListPTRs = {}
+
+local FileListNoFolder = {}
 local FileListOptions = {}
 local FileList = {}
-function SetFilesList()
-	--Copied from Constructor
-	for i = 1, #FileList do
-		table.remove(FileList, #FileList)
+
+local function SetFilesList(directory, query, results)
+	if results == nil then results = {} end
+    for _, filepath in ipairs(filesystem.list_files(directory)) do
+        if filesystem.is_dir(filepath) then
+			local _2, filename, ext = string.match(filepath, "(.-)([^\\/]-%.?)[.]([^%.\\/]*)$")
+			local PathsFile = {
+				Is_Directory=true,
+				FilePath=filepath.."\\",
+				FileName=filename,
+				Name="",
+				Ext="",
+				Directory = _2
+			}
+			table.insert(results, PathsFile)
+            SetFilesList(filepath, query, results)
+        else
+            if string.match(filepath:lower(), query:lower()) then
+                local _2, filename, ext = string.match(filepath, "(.-)([^\\/]-%.?)[.]([^%.\\/]*)$")
+                if ext == "txt" then
+                    local PathsFile = {
+                        Is_Directory=false,
+                        FilePath=filepath,
+                        FileName=filename,
+                        Name=filename,
+                        Ext=ext,
+						Directory = _2
+                    }
+                    table.insert(results, PathsFile)
+                end
+            end
+        end
+    end
+    return results
+end
+
+local FileSelectMenu = menu.list(menu.my_root(), "Load Replay File", {"loadreplayfilemenu"}, "Just click one time to load.", function() CreateMenuItemsForFileList() end
+, function ()
+	CreateMenuItemsForFileList()
+end)
+
+function CreateMenuItemsForFileList()
+	FileList = SetFilesList(PathDirSaveds, "")
+	FileListOptions = {}
+	for k = 1, #FileListPTRs do
+		menu.delete(FileListPTRs[#FileListPTRs].PTR)
+		table.remove(FileListPTRs, #FileListPTRs)
 	end
-	for i = 1, #FileListOptions do
-		table.remove(FileListOptions, #FileListOptions)
-	end
-	for _, filepath in ipairs(filesystem.list_files(PathDirSaveds)) do
-        if not filesystem.is_dir(filepath) then
-            local _, filename, ext = string.match(filepath, "(.-)([^\\/]-%.?)[.]([^%.\\/]*)$")
-			if ext == "txt" then
-				local PathsFile = {
-					FilePath=filepath,
-					FileName=filename,
-					Name=filename..ext
-				}
-				table.insert(FileListOptions, filename.."."..ext)
-				table.insert(FileList, PathsFile)
+	for k = 1, #FileList do
+		if FileList[k].Is_Directory then
+			local CanCreate = true
+			for i = 1, #FileListOptions do
+				if FileListOptions[i].DirectoryName == FileList[k].FilePath then
+					CanCreate = false
+				end
+			end
+			if CanCreate then
+				FileListOptions[#FileListOptions+1] = {Contents = {}, DirectoryName = FileList[k].FilePath, DirectoryPath = FileList[k].FilePath}
 			end
 		end
 	end
+	for k = 1, #FileList do
+		if not FileList[k].Is_Directory then
+			local Dir = FileList[k].Directory
+			local Inserted = false
+			for i = 1, #FileListOptions do
+				if FileListOptions[i].DirectoryPath == Dir then
+					Inserted = true
+					
+					FileListOptions[i].Contents[#FileListOptions[i].Contents+1] = {FilePath = FileList[k].FilePath, FileName = FileList[k].FileName}
+				end
+			end
+			if not Inserted then
+				FileListNoFolder[#FileListNoFolder+1] = {FilePath = FileList[k].FilePath, FileName = FileList[k].FileName}
+			end
+		end
+	end
+	for k = 1, #FileListOptions do
+		local PTR = menu.list(FileSelectMenu, FileListOptions[k].DirectoryName, {}, "")
+		FileListPTRs[#FileListPTRs+1] = {PTR = PTR}
+		for i = 1, #FileListOptions[k].Contents do
+			FileListPTRs[#FileListPTRs+1] = {PTR = menu.action(PTR, FileListOptions[k].Contents[i].FileName, {}, "", function(toggle) LoadedFileName = FileListOptions[k].Contents[i].FilePath end)}
+		end
+	end
+	for k = 1, #FileListNoFolder do
+		FileListPTRs[#FileListPTRs+1] = {PTR = menu.action(FileSelectMenu, FileListNoFolder[k].FileName, {}, "", function(toggle) LoadedFileName = FileListNoFolder[k].FilePath end)}
+	end
 end
-SetFilesList()
-
-FileListPTR = menu.list_select(menu.my_root(), "Load Recorded Path File", {"loadrecordedpath"}, "To start the replay.", FileListOptions, 1, function(OnChange) 
-	LoadedFileName = FileListOptions[OnChange]
-	SetFilesList()
-	menu.set_list_action_options(FileListPTR, FileListOptions)
-end)
-LoadedFileName = FileListOptions[1]
 
 menu.text_input(menu.my_root(), "Set File Name", {"setfilename"}, "Set file name for saving.", function(OnChange) 
 	FileNameForSave = OnChange
-	SetFilesList()
-	menu.set_list_action_options(FileListPTR, FileListOptions)
 end, FileNameForSave)
+
+CreateMenuItemsForFileList()
 
 local AiHateRel = "rgFM_AiHate"
 local AiLikeRel = "rgFM_AiLike"
@@ -61,8 +125,6 @@ local RecordT = {}
 local StartRecord = false
 menu.toggle(menu.my_root(), "Start Recording", {}, "", function(toggle)
 	StartRecord = toggle
-	SetFilesList()
-	menu.set_list_action_options(FileListPTR, FileListOptions)
 	if StartRecord then
 		while StartRecord do
 			local PlayerPed = PLAYER.PLAYER_PED_ID()
@@ -96,22 +158,18 @@ menu.toggle(menu.my_root(), "Start Recording", {}, "", function(toggle)
 	end
 end)
 
-local Model = "sanchez"
+local Model = "elegy"
 menu.text_input(menu.my_root(), "Set Veh Model", {"setvehmodel"}, "Vehicle model will be created to perform the replay.", function(OnChange)
 	if STREAMING.IS_MODEL_VALID(joaat(OnChange)) then
 		Model = OnChange
 	end
-	SetFilesList()
-	menu.set_list_action_options(FileListPTR, FileListOptions)
 end)
 
 local StartReplay = false
 menu.toggle(menu.my_root(), "Start Selected Replay", {}, "", function(toggle)
 	StartReplay = toggle
-	SetFilesList()
-	menu.set_list_action_options(FileListPTR, FileListOptions)
 	if StartReplay then
-		local Paths = GetVectorsTable(PathDirSaveds..LoadedFileName)
+		local Paths = GetVectorsTable(LoadedFileName)
 		local Index = 0
 		STREAMING.REQUEST_MODEL(joaat(Model))
 		while not STREAMING.HAS_MODEL_LOADED(joaat(Model)) do
@@ -143,17 +201,17 @@ menu.toggle(menu.my_root(), "Start Selected Replay", {}, "", function(toggle)
 				local TPos = {x = Paths[Index].x, y = Paths[Index].y, z = Paths[Index].z}
 				local OPos = ENTITY.GET_ENTITY_COORDS(Veh)
 				local NewV3 = {
-					x = (TPos.x - OPos.x) * 10.0,
-					y = (TPos.y - OPos.y) * 10.0,
-					z = (TPos.z - OPos.z) * 10.0
+					x = (TPos.x - OPos.x) * 1.0,
+					y = (TPos.y - OPos.y) * 1.0,
+					z = (TPos.z - OPos.z) * 1.0
 				}
 				local Rot = {x = Paths[Index].RotX, y = Paths[Index].RotY, z = Paths[Index].RotZ}
 				
-				RotateEntityToTargetRotation(Veh, Rot, 20.0)
+				RotateEntityToTargetRotation(Veh, Rot, InterpolationFactor)
 				ENTITY.SET_ENTITY_VELOCITY(Veh, NewV3.x, NewV3.y, NewV3.z)
 				
 				local Calc = NETWORK.GET_TIME_DIFFERENCE(NETWORK.GET_NETWORK_TIME_ACCURATE(), NetworkTime) --Global_NetworkTime - IndexT.TimerMilis
-        		Calc = math.max(math.floor(Calc / 10), 1)
+        		Calc = math.max(math.floor(Calc / GlobalSpd), 1)
 				Index = Calc
 				if Index > #Paths then
 					Index = 0
@@ -171,10 +229,8 @@ end)
 local StartReplayCurVeh = false
 menu.toggle(menu.my_root(), "Replay From Cur Veh", {}, "", function(toggle)
 	StartReplayCurVeh = toggle
-	SetFilesList()
-	menu.set_list_action_options(FileListPTR, FileListOptions)
 	if StartReplayCurVeh then
-		local Paths = GetVectorsTable(PathDirSaveds..LoadedFileName)
+		local Paths = GetVectorsTable(LoadedFileName)
 		local Index = 0
 		local PlayerPed = PLAYER.PLAYER_PED_ID()
 		local Veh = PED.GET_VEHICLE_PED_IS_IN(PlayerPed, true)
@@ -197,11 +253,11 @@ menu.toggle(menu.my_root(), "Replay From Cur Veh", {}, "", function(toggle)
 						}
 						local Rot = {x = Paths[Index].RotX, y = Paths[Index].RotY, z = Paths[Index].RotZ}
 						
-						RotateEntityToTargetRotation(Veh, Rot, 20.0)
+						RotateEntityToTargetRotation(Veh, Rot, InterpolationFactor)
 						ENTITY.SET_ENTITY_VELOCITY(Veh, NewV3.x, NewV3.y, NewV3.z)
 						
 						local Calc = NETWORK.GET_TIME_DIFFERENCE(NETWORK.GET_NETWORK_TIME_ACCURATE(), NetworkTime) --Global_NetworkTime - IndexT.TimerMilis
-						Calc = math.max(math.floor(Calc / 10), 1)
+						Calc = math.max(math.floor(Calc / GlobalSpd), 1)
 						Index = Calc
 						if Index > #Paths then
 							break
@@ -223,10 +279,8 @@ end)
 local ReplayFromOffset = false
 menu.toggle(menu.my_root(), "Replay From Offset For Cur Veh", {}, "", function(toggle)
 	ReplayFromOffset = toggle
-	SetFilesList()
-	menu.set_list_action_options(FileListPTR, FileListOptions)
 	if ReplayFromOffset then
-		local Paths = GetVectorsTable(PathDirSaveds..LoadedFileName)
+		local Paths = GetVectorsTable(LoadedFileName)
 		local Index = 0
 		local PlayerPed = PLAYER.PLAYER_PED_ID()
 		local Offset = ENTITY.GET_ENTITY_COORDS(PlayerPed)
@@ -249,11 +303,11 @@ menu.toggle(menu.my_root(), "Replay From Offset For Cur Veh", {}, "", function(t
 							z = (((Offset.z + (TPos.z - StartPath.z))) - OPos.z) * 10.0
 						}
 						local Rot = {x = Paths[Index].RotX, y = Paths[Index].RotY, z = Paths[Index].RotZ}
-						RotateEntityToTargetRotation(Veh, Rot, 20.0)
+						RotateEntityToTargetRotation(Veh, Rot, InterpolationFactor)
 						ENTITY.SET_ENTITY_VELOCITY(Veh, NewV3.x, NewV3.y, NewV3.z)
 						
 						local Calc = NETWORK.GET_TIME_DIFFERENCE(NETWORK.GET_NETWORK_TIME_ACCURATE(), NetworkTime)
-						Calc = math.max(math.floor(Calc / 10), 1)
+						Calc = math.max(math.floor(Calc / GlobalSpd), 1)
 						Index = Calc
 						if Index > #Paths then
 							break
@@ -449,3 +503,227 @@ function RotateEntityToTargetRotation(entity, targetRotation, interpolationFacto
     -- Aplique a velocidade angular à entidade
     ENTITY.SET_ENTITY_ANGULAR_VELOCITY(entity, angularVelocity.x, angularVelocity.y, angularVelocity.z)
 end
+
+local MultiplayerRecording = menu.list(menu.my_root(), "Multiplayer Recording", {}, "Record and load with more than 1 vehicle tools.")
+
+
+local FolderSelectMenu = menu.list(MultiplayerRecording, "Load Multiplayer Replay", {"loadmultiplayerreplaymenu"}, "", function() CreateMenuItemsFolder() end
+, function ()
+	CreateMenuItemsFolder()
+end)
+
+local PlayersToRecord = {}
+local PlayersToRecordMenu = menu.list(MultiplayerRecording, "Which Players Record", {}, "Select players to record.", function()UpdatePlayersList()end, function()UpdatePlayersList()end)
+
+local RecordPlayerBits = 0
+for i = 1, 30 do
+    if PlayersToRecord[i] == nil then
+        local PlayerName = "---"
+        if NETWORK.NETWORK_IS_PLAYER_ACTIVE(i-1) then
+            PlayerName = PLAYER.GET_PLAYER_NAME(i-1)
+        end
+        PlayersToRecord[i] = {}
+        PlayersToRecord[i].Include = false
+        PlayersToRecord[i].MenuPTR = menu.toggle(PlayersToRecordMenu, PlayerName, {}, "", function(OnChange)
+			PlayersToRecord[i].Include = OnChange
+			if PlayersToRecord[i].Include == true then
+				if not is_bit_set(RecordPlayerBits, i) then
+					RecordPlayerBits = set_bit(RecordPlayerBits, i)
+				end
+			else
+				if is_bit_set(RecordPlayerBits, i) then
+					RecordPlayerBits = clear_bit(RecordPlayerBits, i)
+				end
+			end
+		end, PlayersToRecord[i].Include)
+    end
+end
+
+function UpdatePlayersList()
+    for i = 1, 30 do
+        if PlayersToRecord[i] ~= nil then
+            local PlayerName = "---"
+            if NETWORK.NETWORK_IS_PLAYER_ACTIVE(i-1) then
+                PlayerName = PLAYER.GET_PLAYER_NAME(i-1)
+            end
+            menu.set_menu_name(PlayersToRecord[i].MenuPTR, PlayerName)
+        end
+    end
+end
+
+function is_bit_set(value, bit)
+    bit = bit - 1
+    return (value & (1 << bit)) ~= 0
+end
+
+function clear_bit(value, bit)
+    bit = bit - 1;
+    return value & ~(1 << bit)
+end
+
+function set_bit(value, bit)
+    bit = bit - 1;
+    return value | 1 << bit
+end
+
+local FolderListPTRs = {}
+local LoadedFolderContents = {}
+local FolderListOptions = {}
+
+function CreateMenuItemsFolder()
+	local FolderList = SetFilesList(PathDirSaveds, "")
+	FolderListOptions = {}
+	for k = 1, #FolderListPTRs do
+		menu.delete(FolderListPTRs[#FolderListPTRs].PTR)
+		table.remove(FolderListPTRs, #FolderListPTRs)
+	end
+	for k = 1, #FolderList do
+		if FolderList[k].Is_Directory then
+			local CanCreate = true
+			for i = 1, #FolderListOptions do
+				if FolderListOptions[i].DirectoryName == FolderList[k].FilePath then
+					CanCreate = false
+				end
+			end
+			if CanCreate then
+				FolderListOptions[#FolderListOptions+1] = {Contents = {}, DirectoryName = FolderList[k].FilePath, DirectoryPath = FolderList[k].FilePath}
+			end
+		end
+	end
+	for k = 1, #FolderList do
+		if not FolderList[k].Is_Directory then
+			local Dir = FolderList[k].Directory
+			for i = 1, #FolderListOptions do
+				if FolderListOptions[i].DirectoryPath == Dir then
+					Inserted = true
+					FolderListOptions[i].Contents[#FolderListOptions[i].Contents+1] = {FilePath = FolderList[k].FilePath, FileName = FolderList[k].FileName}
+				end
+			end
+		end
+	end
+	for k = 1, #FolderListOptions do
+		local PTR = menu.action(FolderSelectMenu, FolderListOptions[k].DirectoryPath, {}, "", function(toggle) LoadedFolderContents = FolderListOptions[k].Contents end)
+		FolderListPTRs[#FolderListPTRs+1] = {PTR = PTR}
+	end
+end
+
+local FolderNameForSave = "Stored"
+menu.text_input(MultiplayerRecording, "Set Folder Name", {"setfoldername"}, "Set folder name for saving multiple recordings.", function(OnChange) 
+	FolderNameForSave = OnChange
+end, FolderNameForSave)
+
+local StartRecordMultiplayer = false
+menu.toggle(MultiplayerRecording, "Start Multiplayer Recording", {}, "", function(toggle)
+	StartRecordMultiplayer = toggle
+	if StartRecordMultiplayer then
+		local Dir = PathDirSaveds..FolderNameForSave
+		filesystem.mkdir(Dir)
+		local PlayersT = {}
+		Dir = Dir.."\\"
+		for k = 1, 30 do
+			if is_bit_set(RecordPlayerBits, k) then
+				if NETWORK.NETWORK_IS_PLAYER_ACTIVE(k-1) then
+					local PlayerPed = PLAYER.GET_PLAYER_PED_SCRIPT_INDEX(k-1)
+					if PlayerPed ~= 0 then
+						if PED.IS_PED_IN_ANY_VEHICLE(PlayerPed, false) then
+							PlayersT[#PlayersT+1] = {PlayerID = k-1, Records = {}}
+						end
+					end
+				end
+			end
+		end
+		while StartRecordMultiplayer do
+			for k = 1, #PlayersT do
+				if NETWORK.NETWORK_IS_PLAYER_ACTIVE(PlayersT[k].PlayerID) then
+					local PlayerPed = PLAYER.GET_PLAYER_PED_SCRIPT_INDEX(PlayersT[k].PlayerID)
+					local Veh = PED.GET_VEHICLE_PED_IS_IN(PlayerPed, true)
+					if Veh ~= 0 then
+						local Pos = ENTITY.GET_ENTITY_COORDS(Veh)
+						local Rot = ENTITY.GET_ENTITY_ROTATION(Veh, 5)
+						PlayersT[k].Records[#PlayersT[k].Records+1] = ToTxt(Pos, Rot)
+						if #PlayersT[k].Records >= 1000 then
+							local BigText = ""
+							for i = 1, #PlayersT[k].Records do
+								BigText = BigText..PlayersT[k].Records[i]
+							end
+							for i = 1, #PlayersT[k].Records do
+								table.remove(PlayersT[k].Records, #PlayersT[k].Records)
+							end
+							WriteFile(Dir..k..".txt", BigText)
+						end
+					end
+				end
+			end
+			Wait()
+		end
+		for k = 1, #PlayersT do
+			local BigText = ""
+			for i = 1, #PlayersT[k].Records do
+				BigText = BigText..PlayersT[k].Records[i]
+			end
+			for i = 1, #PlayersT[k].Records do
+				table.remove(PlayersT[k].Records, #PlayersT[k].Records)
+			end
+			WriteFile(Dir..k..".txt", BigText)
+		end
+	end
+end)
+
+local MultiplayerModel = "elegy"
+menu.text_input(MultiplayerRecording, "Set Veh Model", {"setmpvehmodel"}, "Vehicle model will be created to perform the replay.", function(OnChange)
+	if STREAMING.IS_MODEL_VALID(joaat(OnChange)) then
+		MultiplayerModel = OnChange
+	end
+end)
+
+local StartMultiplayerReplay = false
+menu.toggle(MultiplayerRecording, "Start Selected Multiplayer Replay", {}, "", function(toggle)
+	StartMultiplayerReplay = toggle
+	if StartMultiplayerReplay then
+		local Paths = {}
+		for k = 1, #LoadedFolderContents do
+			local Paths_ = GetVectorsTable(LoadedFolderContents[k].FilePath)
+			Paths[#Paths+1] = Paths_
+		end
+		local Vehs = {}
+		RequestModel(joaat(MultiplayerModel))
+		for k = 1, #Paths do
+			local Veh = VEHICLE.CREATE_VEHICLE(joaat(MultiplayerModel), Paths[k][1].x, Paths[k][1].y, Paths[k][1].z, Paths[k][1].RotZ, true, true, false)
+			ENTITY.SET_ENTITY_AS_MISSION_ENTITY(Veh, false, true)
+			entities.set_can_migrate(Veh, false)
+			ENTITY.SET_ENTITY_INVINCIBLE(Veh, true)
+			NETWORK.NETWORK_SET_ENTITY_CAN_BLEND(Veh, true)
+			Vehs[#Vehs+1] = {Handle = Veh, PathsTable = Paths[k]}
+		end
+		STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(joaat(MultiplayerModel))
+		local NetworkTime = NETWORK.GET_NETWORK_TIME_ACCURATE()
+		while StartMultiplayerReplay do
+			for k = 1, #Vehs do
+				if ENTITY.DOES_ENTITY_EXIST(Vehs[k].Handle) then
+					local Calc = NETWORK.GET_TIME_DIFFERENCE(NETWORK.GET_NETWORK_TIME_ACCURATE(), NetworkTime)
+					Calc = math.max(math.floor(Calc / GlobalSpd), 1)
+					local Index = Calc
+					if Index <= #Vehs[k].PathsTable then
+						local TPos = {x = Vehs[k].PathsTable[Index].x, y = Vehs[k].PathsTable[Index].y, z = Vehs[k].PathsTable[Index].z}
+						local OPos = ENTITY.GET_ENTITY_COORDS(Vehs[k].Handle)
+						local NewV3 = {
+							x = (TPos.x - OPos.x) * 10.0,
+							y = (TPos.y - OPos.y) * 10.0,
+							z = (TPos.z - OPos.z) * 10.0
+						}
+						local Rot = {x = Vehs[k].PathsTable[Index].RotX, y = Vehs[k].PathsTable[Index].RotY, z = Vehs[k].PathsTable[Index].RotZ}
+						
+						RotateEntityToTargetRotation(Vehs[k].Handle, Rot, InterpolationFactor)
+						ENTITY.SET_ENTITY_VELOCITY(Vehs[k].Handle, NewV3.x, NewV3.y, NewV3.z)
+					end
+				end
+			end
+			Wait()
+		end
+		for k = 1, #Vehs do
+			if ENTITY.DOES_ENTITY_EXIST(Vehs[k].Handle) then
+				entities.delete_by_handle(Vehs[k].Handle)
+			end
+		end
+	end
+end)
