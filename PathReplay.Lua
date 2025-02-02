@@ -10,7 +10,8 @@ local LoadedFileName = FileNameForSave
 
 filesystem.mkdirs(filesystem.scripts_dir().."Paths")
 
-local GlobalSpd = 20
+local GlobalSpd = 15.65
+local SpeedMultiplier = 1.0545
 
 local InterpolationFactor = 10.0
 
@@ -19,6 +20,7 @@ local FileListPTRs = {}
 local FileListNoFolder = {}
 local FileListOptions = {}
 local FileList = {}
+local FPS = 30
 
 local function SetFilesList(directory, query, results)
 	if results == nil then results = {} end
@@ -55,18 +57,21 @@ local function SetFilesList(directory, query, results)
     return results
 end
 
-local FileSelectMenu = menu.list(menu.my_root(), "Load Replay File", {"loadreplayfilemenu"}, "Just click one time to load.", function() CreateMenuItemsForFileList() end
+local ResetPTRs = true
+local FileSelectMenu = menu.list(menu.my_root(), "Load Replay File", {"loadreplayfilemenu"}, "Just click one time to load.", function() if ResetPTRs then CreateMenuItemsForFileList() end end
 , function ()
-	CreateMenuItemsForFileList()
+	if ResetPTRs then CreateMenuItemsForFileList() end
 end)
 
 function CreateMenuItemsForFileList()
 	FileList = SetFilesList(PathDirSaveds, "")
 	FileListOptions = {}
+	FileListNoFolder = {}
 	for k = 1, #FileListPTRs do
 		menu.delete(FileListPTRs[#FileListPTRs].PTR)
 		table.remove(FileListPTRs, #FileListPTRs)
 	end
+	FileListPTRs = {}
 	for k = 1, #FileList do
 		if FileList[k].Is_Directory then
 			local CanCreate = true
@@ -106,6 +111,7 @@ function CreateMenuItemsForFileList()
 	for k = 1, #FileListNoFolder do
 		FileListPTRs[#FileListPTRs+1] = {PTR = menu.action(FileSelectMenu, FileListNoFolder[k].FileName, {}, "", function(toggle) LoadedFileName = FileListNoFolder[k].FilePath end)}
 	end
+	--Print("FileListOptions "..#FileListOptions.. " FileListNoFolder "..#FileListNoFolder)
 end
 
 menu.text_input(menu.my_root(), "Set File Name", {"setfilename"}, "Set file name for saving.", function(OnChange) 
@@ -129,36 +135,54 @@ menu.toggle(menu.my_root(), "Start Recording", {}, "", function(toggle)
 		while StartRecord do
 			local PlayerPed = PLAYER.PLAYER_PED_ID()
 			local Veh = PED.GET_VEHICLE_PED_IS_IN(PlayerPed, true)
+			local GameTimer = MISC.GET_GAME_TIMER()
 			if Veh ~= 0 then
 				local Pos = ENTITY.GET_ENTITY_COORDS(Veh)
 				local Rot = ENTITY.GET_ENTITY_ROTATION(Veh, 5)
-				RecordT[#RecordT+1] = ToTxt(Pos, Rot)
+				local Vel = ENTITY.GET_ENTITY_VELOCITY(Veh)
+				local AngVel = ENTITY.GET_ENTITY_ROTATION_VELOCITY(Veh)
+				RecordT[#RecordT+1] = ToTxt(Pos, Rot, Vel, AngVel, GameTimer)
+				local BigText = ""
 				if #RecordT >= 1000 then
-					local BigText = ""
-					for i = 1, #RecordT do
-						BigText = BigText..RecordT[i]
+					for k = 1, #RecordT do
+						BigText = BigText..RecordT[k]
 					end
-					for i = 1, #RecordT do
-						table.remove(RecordT, #RecordT)
-					end
+					RecordT = {}
 					WriteFile(PathDirSaveds..FileNameForSave, BigText)
 				end
 			end
+			directx.draw_text(0.5, 0.5, "DeltaTime "..DeltaTime, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
+			directx.draw_text(0.5, 0.6, "GameTimer "..GameTimer, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
 			Wait()
 		end
-	else
 		local BigText = ""
-		for i = 1, #RecordT do
-			BigText = BigText..RecordT[i]
+		for k = 1, #RecordT do
+			BigText = BigText..RecordT[k]
 		end
-		for i = 1, #RecordT do
-			table.remove(RecordT, #RecordT)
-		end
+		RecordT = {}
 		WriteFile(PathDirSaveds..FileNameForSave, BigText)
 	end
 end)
 
-local Model = "elegy"
+--menu.slider_float(menu.my_root(), "Slowing Power", {"slowpower"}, "The bigger the number, more slow the replay will be.", 100, 5000, math.floor(GlobalSpd * 100), 5, function(OnChange)
+--	GlobalSpd = OnChange / 100
+--end)
+--
+--local UseTickSpeed = false
+--menu.toggle(menu.my_root(), "Use Tick Speed", {}, "", function(toggle)
+--	UseTickSpeed = toggle
+--end)
+--
+--local NormaliseSpeed = false
+--menu.toggle(menu.my_root(), "Normalise Speed", {}, "", function(toggle)
+--	NormaliseSpeed = toggle
+--end)
+--local NormalMul = 100.0
+--menu.slider_float(menu.my_root(), "Normalised Speed", {"normalisedspeed"}, "", 100, 50000, math.floor(NormalMul * 100), 100, function(OnChange)
+--	NormalMul = OnChange / 100
+--end)
+
+local Model = "shinobi"
 menu.text_input(menu.my_root(), "Set Veh Model", {"setvehmodel"}, "Vehicle model will be created to perform the replay.", function(OnChange)
 	if STREAMING.IS_MODEL_VALID(joaat(OnChange)) then
 		Model = OnChange
@@ -189,140 +213,153 @@ menu.toggle(menu.my_root(), "Start Selected Replay", {}, "", function(toggle)
 		--VEHICLE.SET_DOOR_ALLOWED_TO_BE_BROKEN_OFF(Veh, 2, false)
 		--VEHICLE.SET_VEHICLE_DOOR_OPEN(Veh, 2, false, true)
 		--Wait()
-		local NetworkTime = NETWORK.GET_NETWORK_TIME_ACCURATE()
+		local Blip = HUD.ADD_BLIP_FOR_ENTITY(Veh)
 		while StartReplay do
 			--VEHICLE.SET_VEHICLE_DOOR_CONTROL(Veh, 2, 360, 360.0)
+			local GameTimer = MISC.GET_GAME_TIMER()
 			if Index == 0 then
 				Index = Index + 1
 				ENTITY.SET_ENTITY_COORDS(Veh, Paths[1].x, Paths[1].y, Paths[1].z)
 				ENTITY.SET_ENTITY_ROTATION(Veh, Paths[1].RotX, Paths[1].RotY, Paths[1].RotZ)
 			end
-			if Index <= #Paths then
-				local TPos = {x = Paths[Index].x, y = Paths[Index].y, z = Paths[Index].z}
-				local OPos = ENTITY.GET_ENTITY_COORDS(Veh)
-				local NewV3 = {
-					x = (TPos.x - OPos.x) * 1.0,
-					y = (TPos.y - OPos.y) * 1.0,
-					z = (TPos.z - OPos.z) * 1.0
-				}
-				local Rot = {x = Paths[Index].RotX, y = Paths[Index].RotY, z = Paths[Index].RotZ}
-				
-				RotateEntityToTargetRotation(Veh, Rot, InterpolationFactor)
-				ENTITY.SET_ENTITY_VELOCITY(Veh, NewV3.x, NewV3.y, NewV3.z)
-				
-				local Calc = NETWORK.GET_TIME_DIFFERENCE(NETWORK.GET_NETWORK_TIME_ACCURATE(), NetworkTime) --Global_NetworkTime - IndexT.TimerMilis
-        		Calc = math.max(math.floor(Calc / GlobalSpd), 1)
-				Index = Calc
-				if Index > #Paths then
-					Index = 0
-					NetworkTime = NETWORK.GET_NETWORK_TIME_ACCURATE()
-				end
+			if Index < #Paths then
+				local CurrentTime = GameTimer - StartTimer
+                local Frame1, Frame2 = Paths[PathIndex], Paths[PathIndex + 1]
+                if CurrentTime > (Frame2.CurGameTime - Paths[1].CurGameTime) then
+                    PathIndex = PathIndex + 1
+                    if PathIndex >= #Paths then
+                        PathIndex = 0
+					else
+						Frame1, Frame2 = Paths[PathIndex], Paths[PathIndex + 1]
+                    end
+                end
+                local Coord = {
+                    x = Paths[PathIndex].x,
+                    y = Paths[PathIndex].y,
+                    z = Paths[PathIndex].z
+                }
+                local Rot = {
+                    x = Paths[PathIndex].RotX,
+                    y = Paths[PathIndex].RotY,
+                    z = Paths[PathIndex].RotZ
+                }
+                local Vel = {
+                    x = Paths[PathIndex].VelX,
+                    y = Paths[PathIndex].VelY,
+                    z = Paths[PathIndex].VelZ
+                }
+                local AngVel = {
+                    x = Paths[PathIndex].AngVelX,
+                    y = Paths[PathIndex].AngVelY,
+                    z = Paths[PathIndex].AngVelZ
+                }
+                SetEntitySpeedToCoord(Veh, Coord, 1.0,
+                false, false, false, Vel.x, Vel.y, Vel.z, false, false, nil)
+                RotateEntityToTargetRotation(Veh, Rot, 10.0)
 			else
 				Index = 0
+				StartTimer = GameTimer
 			end
+			
 			Wait()
 		end
+		util.remove_blip(Blip)
 		entities.delete_by_handle(Veh)
 	end
 end)
 
-local StartReplayCurVeh = false
-menu.toggle(menu.my_root(), "Replay From Cur Veh", {}, "", function(toggle)
-	StartReplayCurVeh = toggle
-	if StartReplayCurVeh then
-		local Paths = GetVectorsTable(LoadedFileName)
-		local Index = 0
-		local PlayerPed = PLAYER.PLAYER_PED_ID()
-		local Veh = PED.GET_VEHICLE_PED_IS_IN(PlayerPed, true)
-		local NetworkTime = NETWORK.GET_NETWORK_TIME_ACCURATE()
-		while StartReplayCurVeh do
-			if Veh ~= 0 then
-				if ENTITY.DOES_ENTITY_EXIST(Veh) then
-					if Index == 0 then
-						Index = Index + 1
-						ENTITY.SET_ENTITY_COORDS(Veh, Paths[1].x, Paths[1].y, Paths[1].z)
-						ENTITY.SET_ENTITY_ROTATION(Veh, Paths[1].RotX, Paths[1].RotY, Paths[1].RotZ)
-					end
-					if Index <= #Paths then
-						local TPos = {x = Paths[Index].x, y = Paths[Index].y, z = Paths[Index].z}
-						local OPos = ENTITY.GET_ENTITY_COORDS(Veh)
-						local NewV3 = {
-							x = (TPos.x - OPos.x) * 10.0,
-							y = (TPos.y - OPos.y) * 10.0,
-							z = (TPos.z - OPos.z) * 10.0
-						}
-						local Rot = {x = Paths[Index].RotX, y = Paths[Index].RotY, z = Paths[Index].RotZ}
-						
-						RotateEntityToTargetRotation(Veh, Rot, InterpolationFactor)
-						ENTITY.SET_ENTITY_VELOCITY(Veh, NewV3.x, NewV3.y, NewV3.z)
-						
-						local Calc = NETWORK.GET_TIME_DIFFERENCE(NETWORK.GET_NETWORK_TIME_ACCURATE(), NetworkTime) --Global_NetworkTime - IndexT.TimerMilis
-						Calc = math.max(math.floor(Calc / GlobalSpd), 1)
-						Index = Calc
-						if Index > #Paths then
-							break
-						end
-					else
-						break
-					end
-				else
-					break
-				end
-			else
-				break
-			end
-			Wait()
-		end
-	end
-end)
-
-local ReplayFromOffset = false
-menu.toggle(menu.my_root(), "Replay From Offset For Cur Veh", {}, "", function(toggle)
-	ReplayFromOffset = toggle
-	if ReplayFromOffset then
-		local Paths = GetVectorsTable(LoadedFileName)
-		local Index = 0
-		local PlayerPed = PLAYER.PLAYER_PED_ID()
-		local Offset = ENTITY.GET_ENTITY_COORDS(PlayerPed)
-		local StartPath = {x = Paths[1].x, y = Paths[1].y, z = Paths[1].z}
-		local NetworkTime = NETWORK.GET_NETWORK_TIME_ACCURATE()
-		local Veh = PED.GET_VEHICLE_PED_IS_IN(PlayerPed, false)
-		while ReplayFromOffset do
-			if Veh ~= 0 then
-				if ENTITY.DOES_ENTITY_EXIST(Veh) then
-					if Index == 0 then
-						Index = Index + 1
-						ENTITY.SET_ENTITY_ROTATION(Veh, Paths[1].RotX, Paths[1].RotY, Paths[1].RotZ)
-					end
-					if Index <= #Paths then
-						local TPos = {x = Paths[Index].x, y = Paths[Index].y, z = Paths[Index].z}
-						local OPos = ENTITY.GET_ENTITY_COORDS(Veh)
-						local NewV3 = {
-							x = (((Offset.x + (TPos.x - StartPath.x))) - OPos.x) * 10.0,
-							y = (((Offset.y + (TPos.y - StartPath.y))) - OPos.y) * 10.0,
-							z = (((Offset.z + (TPos.z - StartPath.z))) - OPos.z) * 10.0
-						}
-						local Rot = {x = Paths[Index].RotX, y = Paths[Index].RotY, z = Paths[Index].RotZ}
-						RotateEntityToTargetRotation(Veh, Rot, InterpolationFactor)
-						ENTITY.SET_ENTITY_VELOCITY(Veh, NewV3.x, NewV3.y, NewV3.z)
-						
-						local Calc = NETWORK.GET_TIME_DIFFERENCE(NETWORK.GET_NETWORK_TIME_ACCURATE(), NetworkTime)
-						Calc = math.max(math.floor(Calc / GlobalSpd), 1)
-						Index = Calc
-						if Index > #Paths then
-							break
-						end
-					end
-				else
-					break
-				end
-			else
-				break
-			end
-			Wait()
-		end
-	end
-end)
+--local StartReplayCurVeh = false
+--menu.toggle(menu.my_root(), "Replay From Cur Veh", {}, "", function(toggle)
+--	StartReplayCurVeh = toggle
+--	if StartReplayCurVeh then
+--		local Paths = GetVectorsTable(LoadedFileName)
+--		local Index = 0
+--		local PlayerPed = PLAYER.PLAYER_PED_ID()
+--		local Veh = PED.GET_VEHICLE_PED_IS_IN(PlayerPed, true)
+--		local StartTimer = MISC.GET_GAME_TIMER()
+--		while StartReplayCurVeh do
+--			local GameTimer = MISC.GET_GAME_TIMER()
+--			if Veh ~= 0 then
+--				if ENTITY.DOES_ENTITY_EXIST(Veh) then
+--					if Index == 0 then
+--						Index = Index + 1
+--						ENTITY.SET_ENTITY_COORDS(Veh, Paths[1].x, Paths[1].y, Paths[1].z)
+--						ENTITY.SET_ENTITY_ROTATION(Veh, Paths[1].RotX, Paths[1].RotY, Paths[1].RotZ)
+--					end
+--					Index = math.max(math.floor((GameTimer - StartTimer) * SpeedMultiplier), 1)
+--					if Index <= #Paths then
+--						local TPos = {x = Paths[Index].x, y = Paths[Index].y, z = Paths[Index].z}
+--						local OPos = ENTITY.GET_ENTITY_COORDS(Veh)
+--						local NewV3 = {
+--							x = (TPos.x - OPos.x) * 10.0,
+--							y = (TPos.y - OPos.y) * 10.0,
+--							z = (TPos.z - OPos.z) * 10.0
+--						}
+--						local Rot = {x = Paths[Index].RotX, y = Paths[Index].RotY, z = Paths[Index].RotZ}
+--						
+--						RotateEntityToTargetRotation(Veh, Rot, InterpolationFactor)
+--						ENTITY.SET_ENTITY_VELOCITY(Veh, NewV3.x, NewV3.y, NewV3.z)
+--						
+--					else
+--						break
+--					end
+--				else
+--					break
+--				end
+--			else
+--				break
+--			end
+--			Wait()
+--		end
+--	end
+--end)
+--
+--local ReplayFromOffset = false
+--menu.toggle(menu.my_root(), "Replay From Offset For Cur Veh", {}, "", function(toggle)
+--	ReplayFromOffset = toggle
+--	if ReplayFromOffset then
+--		local Paths = GetVectorsTable(LoadedFileName)
+--		local Index = 0
+--		local PlayerPed = PLAYER.PLAYER_PED_ID()
+--		local Offset = ENTITY.GET_ENTITY_COORDS(PlayerPed)
+--		local StartPath = {x = Paths[1].x, y = Paths[1].y, z = Paths[1].z}
+--		local Veh = PED.GET_VEHICLE_PED_IS_IN(PlayerPed, false)
+--		local StartTimer = MISC.GET_GAME_TIMER()
+--		while ReplayFromOffset do
+--			local GameTimer = MISC.GET_GAME_TIMER()
+--			if Veh ~= 0 then
+--				if ENTITY.DOES_ENTITY_EXIST(Veh) then
+--					if Index == 0 then
+--						Index = Index + 1
+--						ENTITY.SET_ENTITY_ROTATION(Veh, Paths[1].RotX, Paths[1].RotY, Paths[1].RotZ)
+--					end
+--					Index = math.max(math.floor((GameTimer - StartTimer) * SpeedMultiplier), 1)
+--					if Index <= #Paths then
+--						local TPos = {x = Paths[Index].x, y = Paths[Index].y, z = Paths[Index].z}
+--						local OPos = ENTITY.GET_ENTITY_COORDS(Veh)
+--						local NewV3 = {
+--							x = (((Offset.x + (TPos.x - StartPath.x))) - OPos.x) * 10.0,
+--							y = (((Offset.y + (TPos.y - StartPath.y))) - OPos.y) * 10.0,
+--							z = (((Offset.z + (TPos.z - StartPath.z))) - OPos.z) * 10.0
+--						}
+--						local Rot = {x = Paths[Index].RotX, y = Paths[Index].RotY, z = Paths[Index].RotZ}
+--						RotateEntityToTargetRotation(Veh, Rot, InterpolationFactor)
+--						ENTITY.SET_ENTITY_VELOCITY(Veh, NewV3.x, NewV3.y, NewV3.z)
+--					else
+--						if Index > #Paths then
+--							break
+--						end
+--					end
+--				else
+--					break
+--				end
+--			else
+--				break
+--			end
+--			Wait()
+--		end
+--	end
+--end)
 
 function WriteFile(FileName, Contents)
 	local File = io.open(FileName, "a")
@@ -361,14 +398,23 @@ function GetVectorsTable(FileName)
 	local Vectors = file_lines(FileName)
 	for i = 1, #Vectors do
 		local Number = split_number(Vectors[i])
-		VectorTable[#VectorTable+1] = {x = Number[1], y = Number[2], z = Number[3], RotX = Number[4], RotY = Number[5], RotZ = Number[6]}
+		VectorTable[#VectorTable+1] = {
+			x = Number[1], y = Number[2], z = Number[3],
+			RotX = Number[4], RotY = Number[5], RotZ = Number[6],
+			VelX = Number[7], VelY = Number[8], VelZ = Number[9],
+			AngVelX = Number[10], AngVelY = Number[11], AngVelZ = Number[12],
+			CurGameTime = Number[13]
+		}
 	end
 	return VectorTable
 end
 
-function ToTxt(Pos, Rot)
-	return string.format("%0.3f", Pos.x).." "..string.format("%0.3f", Pos.y).." "..string.format("%0.3f", Pos.z)..
-	" "..string.format("%0.3f", Rot.x).." "..string.format("%0.3f", Rot.y).." "..string.format("%0.3f", Rot.z).."\n"
+function ToTxt(Pos, Rot, Vel, AngVel, CurGameTimer)
+    return string.format("%0.3f", Pos.x).." "..string.format("%0.3f", Pos.y).." "..string.format("%0.3f", Pos.z)..
+    " "..string.format("%0.3f", Rot.x).." "..string.format("%0.3f", Rot.y).." "..string.format("%0.3f", Rot.z)..
+    " "..string.format("%0.3f", Vel.x).." "..string.format("%0.3f", Vel.y).." "..string.format("%0.3f", Vel.z)..
+    " "..string.format("%0.3f", AngVel.x).." "..string.format("%0.3f", AngVel.y).." "..string.format("%0.3f", AngVel.z)..
+    " "..CurGameTimer.."\n"
 end
 
 function TimerCount(TimerT)
@@ -633,6 +679,7 @@ menu.toggle(MultiplayerRecording, "Start Multiplayer Recording", {}, "", functio
 			end
 		end
 		while StartRecordMultiplayer do
+			local GameTimer = MISC.GET_GAME_TIMER()
 			for k = 1, #PlayersT do
 				if NETWORK.NETWORK_IS_PLAYER_ACTIVE(PlayersT[k].PlayerID) then
 					local PlayerPed = PLAYER.GET_PLAYER_PED_SCRIPT_INDEX(PlayersT[k].PlayerID)
@@ -640,7 +687,9 @@ menu.toggle(MultiplayerRecording, "Start Multiplayer Recording", {}, "", functio
 					if Veh ~= 0 then
 						local Pos = ENTITY.GET_ENTITY_COORDS(Veh)
 						local Rot = ENTITY.GET_ENTITY_ROTATION(Veh, 5)
-						PlayersT[k].Records[#PlayersT[k].Records+1] = ToTxt(Pos, Rot)
+						local Vel = ENTITY.GET_ENTITY_VELOCITY(Veh)
+						local AngVel = ENTITY.GET_ENTITY_ROTATION_VELOCITY(Veh)
+						PlayersT[k].Records[#PlayersT[k].Records+1] = ToTxt(Pos, Rot, Vel, AngVel, GameTimer)
 						if #PlayersT[k].Records >= 1000 then
 							local BigText = ""
 							for i = 1, #PlayersT[k].Records do
@@ -693,28 +742,66 @@ menu.toggle(MultiplayerRecording, "Start Selected Multiplayer Replay", {}, "", f
 			entities.set_can_migrate(Veh, false)
 			ENTITY.SET_ENTITY_INVINCIBLE(Veh, true)
 			NETWORK.NETWORK_SET_ENTITY_CAN_BLEND(Veh, true)
-			Vehs[#Vehs+1] = {Handle = Veh, PathsTable = Paths[k]}
+			local Blip = HUD.ADD_BLIP_FOR_ENTITY(Veh)
+			HUD.SET_BLIP_COLOUR(Blip, 3)
+			Vehs[#Vehs+1] = {Handle = Veh, PathsTable = Paths[k], Index = 0, Blip = Blip}
 		end
 		STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(joaat(MultiplayerModel))
-		local NetworkTime = NETWORK.GET_NETWORK_TIME_ACCURATE()
+		--local NetworkTime = NETWORK.GET_NETWORK_TIME_ACCURATE()
+		local StartTimer = MISC.GET_GAME_TIMER()
 		while StartMultiplayerReplay do
+			local GameTimer = MISC.GET_GAME_TIMER()
 			for k = 1, #Vehs do
 				if ENTITY.DOES_ENTITY_EXIST(Vehs[k].Handle) then
-					local Calc = NETWORK.GET_TIME_DIFFERENCE(NETWORK.GET_NETWORK_TIME_ACCURATE(), NetworkTime)
-					Calc = math.max(math.floor(Calc / GlobalSpd), 1)
-					local Index = Calc
-					if Index <= #Vehs[k].PathsTable then
-						local TPos = {x = Vehs[k].PathsTable[Index].x, y = Vehs[k].PathsTable[Index].y, z = Vehs[k].PathsTable[Index].z}
+					if Vehs[k].Index < #Vehs[k].PathsTable then
+						if Vehs[k].Index == 0 then
+							local TPos = {x = Vehs[k].PathsTable[1].x, y = Vehs[k].PathsTable[1].y, z = Vehs[k].PathsTable[1].z}
+							local Rot = {x = Vehs[k].PathsTable[1].RotX, y = Vehs[k].PathsTable[1].RotY, z = Vehs[k].PathsTable[1].RotZ}
+							ENTITY.SET_ENTITY_COORDS(Vehs[k].Handle,  TPos.x, TPos.y, TPos.z)
+							ENTITY.SET_ENTITY_ROTATION(Vehs[k].Handle, Rot.x, Rot.y, Rot.z, 5)
+							Vehs[k].Index = 1
+						end
+						local TPos = {x = Vehs[k].PathsTable[Vehs[k].Index].x, y = Vehs[k].PathsTable[Vehs[k].Index].y, z = Vehs[k].PathsTable[Vehs[k].Index].z}
 						local OPos = ENTITY.GET_ENTITY_COORDS(Vehs[k].Handle)
-						local NewV3 = {
-							x = (TPos.x - OPos.x) * 10.0,
-							y = (TPos.y - OPos.y) * 10.0,
-							z = (TPos.z - OPos.z) * 10.0
-						}
-						local Rot = {x = Vehs[k].PathsTable[Index].RotX, y = Vehs[k].PathsTable[Index].RotY, z = Vehs[k].PathsTable[Index].RotZ}
-						
-						RotateEntityToTargetRotation(Vehs[k].Handle, Rot, InterpolationFactor)
-						ENTITY.SET_ENTITY_VELOCITY(Vehs[k].Handle, NewV3.x, NewV3.y, NewV3.z)
+						local Rot = {x = Vehs[k].PathsTable[Vehs[k].Index].RotX, y = Vehs[k].PathsTable[Vehs[k].Index].RotY, z = Vehs[k].PathsTable[Vehs[k].Index].RotZ}
+						if DistanceBetween(OPos.x, OPos.y, OPos.z, TPos.x, TPos.y, TPos.z) < 100.0 then
+							local CurrentTime = GameTimer - StartTimer
+							local Frame1, Frame2 = Vehs[k].PathsTable[Vehs[k].Index], Vehs[k].PathsTable[Vehs[k].Index + 1]
+							if CurrentTime > (Frame2.CurGameTime - Vehs[k].PathsTable[1].CurGameTime) then
+								Vehs[k].Index = Vehs[k].Index + 1
+								if Vehs[k].Index >= #Vehs[k].PathsTable then
+									Vehs[k].Index = 1
+								else
+									Frame1, Frame2 = Vehs[k].PathsTable[Vehs[k].Index], Vehs[k].PathsTable[Vehs[k].Index + 1]
+								end
+							end
+							local Coord = {
+								x = Vehs[k].PathsTable[Vehs[k].Index].x,
+								y = Vehs[k].PathsTable[Vehs[k].Index].y,
+								z = Vehs[k].PathsTable[Vehs[k].Index].z
+							}
+							local Rot2 = {
+								x = Vehs[k].PathsTable[Vehs[k].Index].RotX,
+								y = Vehs[k].PathsTable[Vehs[k].Index].RotY,
+								z = Vehs[k].PathsTable[Vehs[k].Index].RotZ
+							}
+							local Vel = {
+								x = Vehs[k].PathsTable[Vehs[k].Index].VelX,
+								y = Vehs[k].PathsTable[Vehs[k].Index].VelY,
+								z = Vehs[k].PathsTable[Vehs[k].Index].VelZ
+							}
+							local AngVel = {
+								x = Vehs[k].PathsTable[Vehs[k].Index].AngVelX,
+								y = Vehs[k].PathsTable[Vehs[k].Index].AngVelY,
+								z = Vehs[k].PathsTable[Vehs[k].Index].AngVelZ
+							}
+							SetEntitySpeedToCoord(Vehs[k].Handle, Coord, 1.0,
+							false, false, false, Vel.x, Vel.y, Vel.z, false, false, nil)
+							RotateEntityToTargetRotation(Vehs[k].Handle, Rot2, 10.0)
+						else
+							ENTITY.SET_ENTITY_COORDS(Vehs[k].Handle,  TPos.x, TPos.y, TPos.z)
+							ENTITY.SET_ENTITY_ROTATION(Vehs[k].Handle, Rot.x, Rot.y, Rot.z, 5)
+						end
 					end
 				end
 			end
@@ -722,8 +809,630 @@ menu.toggle(MultiplayerRecording, "Start Selected Multiplayer Replay", {}, "", f
 		end
 		for k = 1, #Vehs do
 			if ENTITY.DOES_ENTITY_EXIST(Vehs[k].Handle) then
+				util.remove_blip(Vehs[k].Blip)
 				entities.delete_by_handle(Vehs[k].Handle)
 			end
 		end
 	end
 end)
+
+--local GameModesMenu = menu.list(menu.my_root(), "Game Modes", {}, "")
+--
+--local CargobobChaseWars = false
+--menu.toggle(GameModesMenu, "Cargobob Chase Wars", {}, "", function(toggle)
+--	CargobobChaseWars = toggle
+--	if CargobobChaseWars then
+--		local Paths1 = GetVectorsTable(PathDirSaveds.."CargobobJob_1.txt")
+--		local Paths2 = GetVectorsTable(PathDirSaveds.."CargobobJob_2.txt")
+--		local Paths = {Paths1, Paths2}
+--		local Vehs = {}
+--		local Objs = {}
+--		local VehsLocal = SplitGlobals("Local_22960.f_834.f_81")
+--		local ObjsLocal = SplitGlobals("Local_22960.f_834.f_147")
+--		local Spd = {13, 10}
+--		local NetworkTime = NETWORK.GET_NETWORK_TIME_ACCURATE()
+--		local Started = false
+--		while CargobobChaseWars do
+--			if SCRIPT.GET_NUMBER_OF_THREADS_RUNNING_THE_SCRIPT_WITH_THIS_HASH(joaat("fm_mission_controller")) > 0 then
+--				if PLAYER.IS_PLAYER_CONTROL_ON(PLAYER.PLAYER_ID()) then
+--				 	Started = true
+--				end
+--				if Started then
+--					local TimeStep = SYSTEM.TIMESTEP()
+--					local AccurateNetTime = NETWORK.GET_NETWORK_TIME_ACCURATE()
+--					for k = 1, 4 do
+--						if k <= 2 then
+--							if Vehs[k] == nil then
+--								local NetID = memory.read_int(memory.script_local("fm_mission_controller", VehsLocal+k))
+--								if NetID ~= 0 then
+--									local Handle = 0
+--									util.spoof_script("fm_mission_controller", function()
+--										Handle = NETWORK.NET_TO_VEH(NetID)
+--									end)
+--									if Handle ~= 0 then
+--										Vehs[k] = {Handle = Handle, PathsTable = Paths[k], Spd = Spd[k]}
+--										NetworkTime = NETWORK.GET_NETWORK_TIME_ACCURATE()
+--									end
+--								end
+--							end
+--						end
+--						if k >= 3 then
+--							if Vehs[k] == nil then
+--								local NetID = memory.read_int(memory.script_local("fm_mission_controller", VehsLocal+k))
+--								if NetID ~= 0 then
+--									local Handle = 0
+--									util.spoof_script("fm_mission_controller", function()
+--										Handle = NETWORK.NET_TO_VEH(NetID)
+--									end)
+--									if Handle ~= 0 then
+--										Vehs[k] = {Handle = Handle}
+--									end
+--								end
+--							end
+--						end
+--					end
+--					for k = 1, 4 do
+--						if Vehs[k] ~= nil then
+--							if ENTITY.DOES_ENTITY_EXIST(Vehs[k].Handle) then
+--								if RequestControlOfEntity(Vehs[k].Handle) then
+--									NETWORK.NETWORK_SET_ENTITY_CAN_BLEND(Vehs[k].Handle, true)
+--									entities.set_can_migrate(Vehs[k].Handle, false)
+--									ENTITY.SET_ENTITY_HAS_GRAVITY(Vehs[k].Handle, false)
+--									--ENTITY.SET_ENTITY_INVINCIBLE(Vehs[k].Handle, true)
+--								end
+--								if k <= 2 then
+--									ENTITY.SET_ENTITY_NO_COLLISION_ENTITY(Vehs[1].Handle, Vehs[2].Handle, false)
+--									--ENTITY.SET_ENTITY_NO_COLLISION_ENTITY(Vehs[2].Handle, Vehs[1].Handle, false)
+--									VEHICLE.SET_VEHICLE_DOOR_CONTROL(Vehs[k].Handle, 2, 180, 180.0)
+--									VEHICLE.SET_DOOR_ALLOWED_TO_BE_BROKEN_OFF(Vehs[k].Handle, 2, false)
+--									VEHICLE.SET_HELI_TAIL_ROTOR_HEALTH(Vehs[k].Handle, 100000.0)
+--									VEHICLE.SET_HELI_MAIN_ROTOR_HEALTH(Vehs[k].Handle, 100000.0)
+--									VEHICLE.SET_HELI_TAIL_BOOM_CAN_BREAK_OFF(Vehs[k].Handle, false) 
+--									local Calc = NETWORK.GET_TIME_DIFFERENCE(AccurateNetTime, NetworkTime)
+--									Calc = math.max(math.floor(Calc / Vehs[k].Spd), 1)
+--									local Index = Calc
+--									if Index <= #Vehs[k].PathsTable then
+--										local TPos = {x = Vehs[k].PathsTable[Index].x, y = Vehs[k].PathsTable[Index].y, z = Vehs[k].PathsTable[Index].z}
+--										local OPos = ENTITY.GET_ENTITY_COORDS(Vehs[k].Handle)
+--										local NewV3 = {
+--											x = (TPos.x - OPos.x) * 1.0,
+--											y = (TPos.y - OPos.y) * 1.0,
+--											z = (TPos.z - OPos.z) * 1.0
+--										}
+--										local Rot = {x = Vehs[k].PathsTable[Index].RotX, y = Vehs[k].PathsTable[Index].RotY, z = Vehs[k].PathsTable[Index].RotZ}
+--										
+--										RotateEntityToTargetRotation(Vehs[k].Handle, Rot, InterpolationFactor)
+--										ENTITY.SET_ENTITY_VELOCITY(Vehs[k].Handle, NewV3.x, NewV3.y, NewV3.z)
+--									end
+--								end
+--							end
+--						end
+--					end
+--					if Vehs[1] ~= nil and Vehs[2] ~= nil then
+--						for k = 1, 2 do
+--							if Objs[k] == nil then
+--								local NetID = memory.read_int(memory.script_local("fm_mission_controller", ObjsLocal+k))
+--								if NetID ~= 0 then
+--									local Handle = 0
+--									util.spoof_script("fm_mission_controller", function()
+--										Handle = NETWORK.NET_TO_OBJ(NetID)
+--									end)
+--									if Handle ~= 0 then
+--										Objs[k] = {Handle = Handle}
+--									end
+--								end
+--							end
+--							if Objs[k] ~= nil then
+--								if ENTITY.DOES_ENTITY_EXIST(Objs[k].Handle) then
+--									if RequestControlOfEntity(Objs[k].Handle) then
+--										entities.set_can_migrate(Objs[k].Handle, false)
+--										ENTITY.SET_ENTITY_COMPLETELY_DISABLE_COLLISION(Objs[k].Handle, false, true)
+--									end
+--									if k == 1 then
+--										if not ENTITY.IS_ENTITY_ATTACHED(Vehs[3].Handle) then
+--											ENTITY.ATTACH_ENTITY_TO_ENTITY(Vehs[3].Handle, Objs[k].Handle, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, true, false, false, false, 2, true, false)
+--										end
+--										--ENTITY.SET_ENTITY_NO_COLLISION_ENTITY(Objs[k].Handle, Vehs[1].Handle, false)
+--										local TPos = ENTITY.GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS(Vehs[1].Handle, 0.0, 0.0, 0.0)
+--										local OPos = ENTITY.GET_ENTITY_COORDS(Objs[k].Handle)
+--										local Speed = ENTITY.GET_ENTITY_VELOCITY(Vehs[1].Handle)
+--										local NewV3 = {
+--											x = ((TPos.x + Speed.x) - OPos.x) * 1.0,
+--											y = ((TPos.y + Speed.y) - OPos.y) * 1.0,
+--											z = ((TPos.z + Speed.z) - OPos.z) * 1.0
+--										}
+--										local Rot = ENTITY.GET_ENTITY_ROTATION(Vehs[1].Handle, 5)
+--										RotateEntityToTargetRotation(Objs[k].Handle, Rot, InterpolationFactor)
+--										ENTITY.SET_ENTITY_VELOCITY(Objs[k].Handle, NewV3.x, NewV3.y, NewV3.z)
+--									end
+--									if k == 2 then
+--										if not ENTITY.IS_ENTITY_ATTACHED(Vehs[4].Handle) then
+--											ENTITY.ATTACH_ENTITY_TO_ENTITY(Vehs[4].Handle, Objs[k].Handle, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, true, false, false, false, 2, true, false)
+--										end
+--										--ENTITY.SET_ENTITY_NO_COLLISION_ENTITY(Objs[k].Handle, Vehs[2].Handle, false)
+--										local TPos = ENTITY.GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS(Vehs[2].Handle, 0.0, 0.0, 0.0)
+--										local OPos = ENTITY.GET_ENTITY_COORDS(Objs[k].Handle)
+--										local Speed = ENTITY.GET_ENTITY_VELOCITY(Vehs[2].Handle)
+--										local NewV3 = {
+--											x = ((TPos.x + Speed.x) - OPos.x) * 1.0,
+--											y = ((TPos.y + Speed.y) - OPos.y) * 1.0,
+--											z = ((TPos.z + Speed.z) - OPos.z) * 1.0
+--										}
+--										local Rot = ENTITY.GET_ENTITY_ROTATION(Vehs[2].Handle, 5)
+--										RotateEntityToTargetRotation(Objs[k].Handle, Rot, InterpolationFactor)
+--										ENTITY.SET_ENTITY_VELOCITY(Objs[k].Handle, NewV3.x, NewV3.y, NewV3.z)
+--									end
+--								end
+--							end
+--						end
+--					end
+--				end
+--			else
+--				Started = false
+--				for k = 1, 4 do
+--					Vehs[k] = nil
+--				end
+--				for k = 1, 12 do
+--					Objs[k] = nil
+--				end
+--			end
+--			Wait()
+--		end
+--	end
+--end)
+
+--local BoatChaseWars = false
+--menu.toggle(GameModesMenu, "Boat Chase Wars", {}, "", function(toggle)
+--	BoatChaseWars = toggle
+--	if BoatChaseWars then
+--		local Paths1 = GetVectorsTable(PathDirSaveds.."CargobobJob_1.txt")
+--		local Paths2 = GetVectorsTable(PathDirSaveds.."CargobobJob_2.txt")
+--		local Paths = {Paths1, Paths2}
+--		local Vehs = {}
+--		local Objs = {}
+--		local VehsLocal = SplitGlobals("Local_22960.f_834.f_81")
+--		local ObjsLocal = SplitGlobals("Local_22960.f_834.f_147")
+--		local VehModelGlobal = SplitGlobals("Global_4980736.f_98448[bVar0 /*600*/].f_12")
+--		local Spd = {13, 10}
+--		local NetworkTime = NETWORK.GET_NETWORK_TIME_ACCURATE()
+--		local Started = false
+--		while BoatChaseWars do
+--			for i = 0, 1 do
+--				memory.write_int(memory.script_global(VehModelGlobal + 600 * i), joaat("tug"))
+--			end
+--			if SCRIPT.GET_NUMBER_OF_THREADS_RUNNING_THE_SCRIPT_WITH_THIS_HASH(joaat("fm_mission_controller")) > 0 then
+--				if PLAYER.IS_PLAYER_CONTROL_ON(PLAYER.PLAYER_ID()) then
+--				 	Started = true
+--				end
+--				if Started then
+--					local TimeStep = SYSTEM.TIMESTEP()
+--					local AccurateNetTime = NETWORK.GET_NETWORK_TIME_ACCURATE()
+--					for k = 1, 4 do
+--						if k <= 2 then
+--							if Vehs[k] == nil then
+--								local NetID = memory.read_int(memory.script_local("fm_mission_controller", VehsLocal+k))
+--								if NetID ~= 0 then
+--									local Handle = 0
+--									util.spoof_script("fm_mission_controller", function()
+--										Handle = NETWORK.NET_TO_VEH(NetID)
+--									end)
+--									if Handle ~= 0 then
+--										Vehs[k] = {Handle = Handle, PathsTable = Paths[k], Spd = Spd[k]}
+--										NetworkTime = NETWORK.GET_NETWORK_TIME_ACCURATE()
+--									end
+--								end
+--							end
+--						end
+--						if k >= 3 then
+--							if Vehs[k] == nil then
+--								local NetID = memory.read_int(memory.script_local("fm_mission_controller", VehsLocal+k))
+--								if NetID ~= 0 then
+--									local Handle = 0
+--									util.spoof_script("fm_mission_controller", function()
+--										Handle = NETWORK.NET_TO_VEH(NetID)
+--									end)
+--									if Handle ~= 0 then
+--										Vehs[k] = {Handle = Handle}
+--									end
+--								end
+--							end
+--						end
+--					end
+--					for k = 1, 4 do
+--						if Vehs[k] ~= nil then
+--							if ENTITY.DOES_ENTITY_EXIST(Vehs[k].Handle) then
+--								if RequestControlOfEntity(Vehs[k].Handle) then
+--									NETWORK.NETWORK_SET_ENTITY_CAN_BLEND(Vehs[k].Handle, true)
+--									entities.set_can_migrate(Vehs[k].Handle, false)
+--									ENTITY.SET_ENTITY_HAS_GRAVITY(Vehs[k].Handle, false)
+--									--ENTITY.SET_ENTITY_INVINCIBLE(Vehs[k].Handle, true)
+--									ENTITY.FREEZE_ENTITY_POSITION(Vehs[k].Handle, false)
+--								end
+--								if k <= 2 then
+--									ENTITY.SET_ENTITY_NO_COLLISION_ENTITY(Vehs[1].Handle, Vehs[2].Handle, false)
+--									--ENTITY.SET_ENTITY_NO_COLLISION_ENTITY(Vehs[2].Handle, Vehs[1].Handle, false)
+--									VEHICLE.SET_VEHICLE_DOOR_CONTROL(Vehs[k].Handle, 2, 180, 180.0)
+--									VEHICLE.SET_DOOR_ALLOWED_TO_BE_BROKEN_OFF(Vehs[k].Handle, 2, false)
+--									VEHICLE.SET_HELI_TAIL_ROTOR_HEALTH(Vehs[k].Handle, 100000.0)
+--									VEHICLE.SET_HELI_MAIN_ROTOR_HEALTH(Vehs[k].Handle, 100000.0)
+--									VEHICLE.SET_HELI_TAIL_BOOM_CAN_BREAK_OFF(Vehs[k].Handle, false) 
+--									local Calc = NETWORK.GET_TIME_DIFFERENCE(AccurateNetTime, NetworkTime)
+--									Calc = math.max(math.floor(Calc / Vehs[k].Spd), 1)
+--									local Index = Calc
+--									if Index == 1 then
+--										local TPos = {x = Vehs[k].PathsTable[Index].x, y = Vehs[k].PathsTable[Index].y, z = Vehs[k].PathsTable[Index].z}
+--										ENTITY.SET_ENTITY_COORDS(Vehs[k].Handle, TPos.x, TPos.y, TPos.z)
+--									end
+--									if Index <= #Vehs[k].PathsTable then
+--										local TPos = {x = Vehs[k].PathsTable[Index].x, y = Vehs[k].PathsTable[Index].y, z = Vehs[k].PathsTable[Index].z}
+--										local OPos = ENTITY.GET_ENTITY_COORDS(Vehs[k].Handle)
+--										local NewV3 = {
+--											x = (TPos.x - OPos.x) * 1.0,
+--											y = (TPos.y - OPos.y) * 1.0,
+--											z = (TPos.z - OPos.z) * 1.0
+--										}
+--										local Rot = {x = Vehs[k].PathsTable[Index].RotX, y = Vehs[k].PathsTable[Index].RotY, z = Vehs[k].PathsTable[Index].RotZ}
+--										
+--										RotateEntityToTargetRotation(Vehs[k].Handle, Rot, InterpolationFactor)
+--										ENTITY.SET_ENTITY_VELOCITY(Vehs[k].Handle, NewV3.x, NewV3.y, NewV3.z)
+--									end
+--								end
+--							end
+--						end
+--					end
+--					if Vehs[1] ~= nil and Vehs[2] ~= nil then
+--						for k = 1, 2 do
+--							if Objs[k] == nil then
+--								local NetID = memory.read_int(memory.script_local("fm_mission_controller", ObjsLocal+k))
+--								if NetID ~= 0 then
+--									local Handle = 0
+--									util.spoof_script("fm_mission_controller", function()
+--										Handle = NETWORK.NET_TO_OBJ(NetID)
+--									end)
+--									if Handle ~= 0 then
+--										Objs[k] = {Handle = Handle}
+--									end
+--								end
+--							end
+--							if Objs[k] ~= nil then
+--								if ENTITY.DOES_ENTITY_EXIST(Objs[k].Handle) then
+--									if RequestControlOfEntity(Objs[k].Handle) then
+--										entities.set_can_migrate(Objs[k].Handle, false)
+--										ENTITY.SET_ENTITY_COMPLETELY_DISABLE_COLLISION(Objs[k].Handle, false, true)
+--									end
+--									if k == 1 then
+--										--if not ENTITY.IS_ENTITY_ATTACHED(Vehs[3].Handle) then
+--											ENTITY.ATTACH_ENTITY_TO_ENTITY(Vehs[3].Handle, Vehs[1].Handle, 0, 0.0, -11.0, 0.2, 0.0, 0.0, 0.0, true, false, false, false, 2, true, false)
+--										--end
+--										--ENTITY.SET_ENTITY_NO_COLLISION_ENTITY(Objs[k].Handle, Vehs[1].Handle, false)
+--										local TPos = ENTITY.GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS(Vehs[1].Handle, 0.0, -5.0, 0.5)
+--										local OPos = ENTITY.GET_ENTITY_COORDS(Objs[k].Handle)
+--										local Speed = ENTITY.GET_ENTITY_VELOCITY(Vehs[1].Handle)
+--										local NewV3 = {
+--											x = ((TPos.x + Speed.x) - OPos.x) * 1.0,
+--											y = ((TPos.y + Speed.y) - OPos.y) * 1.0,
+--											z = ((TPos.z + Speed.z) - OPos.z) * 1.0
+--										}
+--										local Rot = ENTITY.GET_ENTITY_ROTATION(Vehs[1].Handle, 5)
+--										RotateEntityToTargetRotation(Objs[k].Handle, Rot, InterpolationFactor)
+--										ENTITY.SET_ENTITY_VELOCITY(Objs[k].Handle, NewV3.x, NewV3.y, NewV3.z)
+--									end
+--									if k == 2 then
+--										--if not ENTITY.IS_ENTITY_ATTACHED(Vehs[4].Handle) then
+--											ENTITY.ATTACH_ENTITY_TO_ENTITY(Vehs[4].Handle, Vehs[2].Handle, 0, 0.0, -11.0, 0.2, 0.0, 0.0, 0.0, true, false, false, false, 2, true, false)
+--										--end
+--										--ENTITY.SET_ENTITY_NO_COLLISION_ENTITY(Objs[k].Handle, Vehs[2].Handle, false)
+--										local TPos = ENTITY.GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS(Vehs[2].Handle, 0.0, -5.0, 0.5)
+--										local OPos = ENTITY.GET_ENTITY_COORDS(Objs[k].Handle)
+--										local Speed = ENTITY.GET_ENTITY_VELOCITY(Vehs[2].Handle)
+--										local NewV3 = {
+--											x = ((TPos.x + Speed.x) - OPos.x) * 1.0,
+--											y = ((TPos.y + Speed.y) - OPos.y) * 1.0,
+--											z = ((TPos.z + Speed.z) - OPos.z) * 1.0
+--										}
+--										local Rot = ENTITY.GET_ENTITY_ROTATION(Vehs[2].Handle, 5)
+--										RotateEntityToTargetRotation(Objs[k].Handle, Rot, InterpolationFactor)
+--										ENTITY.SET_ENTITY_VELOCITY(Objs[k].Handle, NewV3.x, NewV3.y, NewV3.z)
+--									end
+--								end
+--							end
+--						end
+--					end
+--				end
+--			else
+--				Started = false
+--				for k = 1, 4 do
+--					Vehs[k] = nil
+--				end
+--				for k = 1, 12 do
+--					Objs[k] = nil
+--				end
+--			end
+--			Wait()
+--		end
+--	end
+--end)
+
+function SplitGlobals(GlobalString)
+	local String = GlobalString
+	local Value = String:gsub("%[(.-)]", "+1")
+	local NewValue = Value:gsub("%a", "")
+	local NewValue2 = NewValue:gsub("._", "+")
+	local NewValue3 = NewValue2:gsub("_", "")
+	local _Text, SymbolCount = NewValue3:gsub("+", "")
+	local PatternCount = "(%d+)"
+	for i = 1, SymbolCount do
+		PatternCount = PatternCount .. "+(%d+)"
+	end
+	local Global, Global2, Global3, Global4, Global5, Global6, Global7 = NewValue3:match(PatternCount)
+	local GlobalNumber = 0
+	if Global ~= nil then
+		GlobalNumber = GlobalNumber + tonumber(Global)
+	end
+	if Global2 ~= nil then
+		GlobalNumber = GlobalNumber + tonumber(Global2)
+	end
+	if Global3 ~= nil then
+		GlobalNumber = GlobalNumber + tonumber(Global3)
+	end
+	if Global4 ~= nil then
+		GlobalNumber = GlobalNumber + tonumber(Global4)
+	end
+	if Global5 ~= nil then
+		GlobalNumber = GlobalNumber + tonumber(Global5)
+	end
+	if Global6 ~= nil then
+		GlobalNumber = GlobalNumber + tonumber(Global6)
+	end
+	if Global7 ~= nil then
+		GlobalNumber = GlobalNumber + tonumber(Global7)
+	end
+	return GlobalNumber
+end
+
+function angleDifference(target, current)
+    local diff = target - current
+    if diff > 180 then
+        diff = diff - 360
+    elseif diff < -180 then
+        diff = diff + 360
+    end
+    return diff
+end
+
+-- Função para converter graus para radianos
+local function deg2rad(deg)
+    return deg * math.pi / 180.0
+end
+
+-- Função para converter radianos para graus
+local function rad2deg(rad)
+    return rad * 180.0 / math.pi
+end
+
+-- Função para limitar o ângulo no intervalo de -180 a 180 graus
+local function wrap180(deg)
+    while deg <= -180.0 do deg = deg + 360.0 end
+    while deg > 180.0 do deg = deg - 360.0 end
+    return deg
+end
+
+-- Função para converter rotação XYZ para ZYX
+function convertRotationXYZtoZYX(rotX, rotY, rotZ)
+    -- Converter para radianos
+    local x = deg2rad(rotX)
+    local y = deg2rad(rotY)
+    local z = deg2rad(rotZ)
+
+    -- Matriz de rotação para XYZ
+    local cosX = math.cos(x)
+    local sinX = math.sin(x)
+    local cosY = math.cos(y)
+    local sinY = math.sin(y)
+    local cosZ = math.cos(z)
+    local sinZ = math.sin(z)
+
+    local Rxyz = {
+        {cosY * cosZ, -cosY * sinZ, sinY},
+        {sinX * sinY * cosZ + cosX * sinZ, -sinX * sinY * sinZ + cosX * cosZ, -sinX * cosY},
+        {-cosX * sinY * cosZ + sinX * sinZ, cosX * sinY * sinZ + sinX * cosZ, cosX * cosY}
+    }
+
+    -- Extrair ângulos ZYX da matriz de rotação
+    local rotZ2 = math.atan2(Rxyz[2][1], Rxyz[1][1])
+    local rotY2 = math.asin(-Rxyz[3][1])
+    local rotX2 = math.atan2(Rxyz[3][2], Rxyz[3][3])
+
+    -- Converter de volta para graus
+    rotX2 = rad2deg(rotX2)
+    rotY2 = rad2deg(rotY2)
+    rotZ2 = rad2deg(rotZ2)
+
+    -- Ajustar ângulos para o intervalo de -180 a 180 graus
+    rotX2 = wrap180(rotX2)
+    rotY2 = wrap180(rotY2)
+    rotZ2 = wrap180(rotZ2)
+
+    return {x = rotX2, y = -rotY2, z = rotZ2}
+end
+
+-- Função para adicionar duas rotações e retornar a rotação normalizada
+function addRotation(rot1, rot2)
+    local result = rot1 + rot2
+    return wrap180(result)
+end
+
+-- Função para subtrair duas rotações e retornar a rotação normalizada
+function subtractRotation(rot1, rot2)
+    local result = rot1 - rot2
+    return wrap180(result)
+end
+
+function DistanceBetween(x1, y1, z1, x2, y2, z2)
+	local dx = x1 - x2
+	local dy = y1 - y2
+	local dz = z1 - z2
+	return math.sqrt ( dx * dx + dy * dy + dz * dz)
+end
+
+function CalculateOffsetZYX(basePos, rotation, forwardOffset, sideOffset, verticalOffset)
+    -- Converte ângulos de graus para radianos
+    local radZ = math.rad(rotation.z)
+    local radY = math.rad(rotation.y)
+    local radX = math.rad(rotation.x)
+
+    -- Calcula os vetores de direção usando ZYX
+    local cosZ, sinZ = math.cos(radZ), math.sin(radZ)
+    local cosY, sinY = math.cos(radY), math.sin(radY)
+    local cosX, sinX = math.cos(radX), math.sin(radX)
+
+    -- Forward vector (Z depois Y depois X)
+    local forward = {
+        x = cosY * cosZ,
+        y = cosY * sinZ,
+        z = -sinY
+    }
+
+    -- Right vector
+    local right = {
+        x = cosZ * sinY * sinX - sinZ * cosX,
+        y = sinZ * sinY * sinX + cosZ * cosX,
+        z = cosY * sinX
+    }
+
+    -- Up vector
+    local up = {
+        x = cosZ * sinY * cosX + sinZ * sinX,
+        y = sinZ * sinY * cosX - cosZ * sinX,
+        z = cosY * cosX
+    }
+
+    -- Calcula a posição final com offset
+    local finalPos = {
+        x = basePos.x + forward.x * forwardOffset + right.x * sideOffset + up.x * verticalOffset,
+        y = basePos.y + forward.y * forwardOffset + right.y * sideOffset + up.y * verticalOffset,
+        z = basePos.z + forward.z * forwardOffset + right.z * sideOffset + up.z * verticalOffset
+    }
+
+    return finalPos
+end
+
+--local RailMode = false
+--menu.toggle(GameModesMenu, "Rail Mode Race", {}, "", function(toggle)
+--	RailMode = toggle
+--	if RailMode then
+--		local Paths = GetVectorsTable(PathDirSaveds.."ScriptedRails.txt")
+--		local PlayersT = {}
+--		local MaxOffsetX = 5.0
+--		while RailMode do
+--			local GameTimer = MISC.GET_GAME_TIMER()
+--			for k = 0, 29 do
+--				if NETWORK.NETWORK_IS_PLAYER_CONNECTED(k) then
+--					if PlayersT[k] == nil then
+--						PlayersT[k] = {}
+--						PlayersT[k].OffsetX = 0.0
+--						PlayersT[k].Speed = 0.0
+--						PlayersT[k].Index = 1
+--						PlayersT[k].LastTimer = nil
+--						PlayersT[k].TickDuration = 1000 / FPS
+--						PlayersT[k].LastTickTime = GameTimer
+--					end
+--					local PlayerPed = PLAYER.GET_PLAYER_PED_SCRIPT_INDEX(k)
+--					if PlayerPed ~= 0 then
+--						local Veh = PED.GET_VEHICLE_PED_IS_IN(PlayerPed, false)
+--						if Veh ~= 0 and PED.IS_PED_IN_VEHICLE(PlayerPed, Veh, false) then
+--							if RequestControlOfEntity(Veh) then
+--								ENTITY.SET_ENTITY_AS_MISSION_ENTITY(Veh, false, true)
+--								entities.set_can_migrate(Veh, false)
+--							end
+--							local BoneIndex = ENTITY.GET_ENTITY_BONE_INDEX_BY_NAME(Veh, "steeringwheel")
+--							if BoneIndex ~= 0 then
+--								local Rot = subtractRotation(ENTITY.GET_ENTITY_ROTATION(Veh, 2).z, players.get_cam_rot(k).z)
+--								PlayersT[k].OffsetX = PlayersT[k].OffsetX + Rot * 0.005
+--								if PlayersT[k].OffsetX > MaxOffsetX then
+--									PlayersT[k].OffsetX = MaxOffsetX
+--								end
+--								if PlayersT[k].OffsetX < -MaxOffsetX then
+--									PlayersT[k].OffsetX = -MaxOffsetX
+--								end
+--							end
+--							if (GameTimer - PlayersT[k].LastTickTime) >= PlayersT[k].TickDuration then
+--								if PlayersT[k].LastTimer ~= nil then
+--									local TimeDiff = GameTimer - PlayersT[k].LastTimer
+--									local LostTicks = math.floor(TimeDiff / PlayersT[k].TickDuration)
+--									if LostTicks > 0 then
+--										PlayersT[k].Index = PlayersT[k].Index + LostTicks + 1
+--									else
+--										PlayersT[k].Index = PlayersT[k].Index + 1
+--									end
+--								else
+--									PlayersT[k].Index = PlayersT[k].Index + 1
+--								end
+--								PlayersT[k].LastTickTime = GameTimer
+--							end
+--							PlayersT[k].LastTimer = GameTimer
+--							if PlayersT[k].Index <= #Paths then
+--								local Rot = {x = Paths[PlayersT[k].Index].RotX, y = Paths[PlayersT[k].Index].RotY, z = Paths[PlayersT[k].Index].RotZ}
+--								local TPos = {x = Paths[PlayersT[k].Index].x, y = Paths[PlayersT[k].Index].y, z = Paths[PlayersT[k].Index].z}
+--								local NewPos = CalculateOffsetZYX(TPos, Rot, PlayersT[k].OffsetX, 0.0, 0.0)
+--								local OPos = ENTITY.GET_ENTITY_COORDS(Veh)
+--								local NewV3 = {
+--									x = (NewPos.x - OPos.x) * 5.0,
+--									y = (NewPos.y - OPos.y) * 5.0,
+--									z = (NewPos.z - OPos.z) * 5.0
+--								}
+--								
+--								
+--								RotateEntityToTargetRotation(Veh, Rot, InterpolationFactor)
+--								ENTITY.SET_ENTITY_VELOCITY(Veh, NewV3.x, NewV3.y, NewV3.z)
+--								--ENTITY.SET_ENTITY_COORDS(Veh, TPos.x, TPos.y, TPos.z, false, true)
+--							end
+--						end
+--					end
+--				else
+--					PlayersT[k] = nil
+--				end
+--			end
+--			Wait()
+--		end
+--	end
+--end)
+
+function SetEntitySpeedToCoord(Entity, CoordTarget, Mul, IgnoreX, IgnoreY, IgnoreZ, AddX, AddY, AddZ, Normalise, Relative, OverridePos)
+    local OPos = nil
+    if OverridePos ~= nil then
+        OPos = OverridePos
+    else
+        OPos = ENTITY.GET_ENTITY_COORDS(Entity)
+    end
+	local NewV3 = {
+        x = (CoordTarget.x - OPos.x) * Mul,
+        y = (CoordTarget.y - OPos.y) * Mul,
+        z = (CoordTarget.z - OPos.z) * Mul
+    }
+    if IgnoreX then
+        NewV3.x = 0.0
+    end
+    if IgnoreY then
+        NewV3.y = 0.0
+    end
+    if IgnoreZ then
+        NewV3.z = 0.0
+    end
+    if Normalise then
+        NewV3 = v3.new(NewV3.x, NewV3.y, NewV3.z)
+		if v3.distance(CoordTarget, OPos) > 1.0 then
+			NewV3:normalise()
+			NewV3:mul(Mul)
+		end
+    end
+    local MoreX, MoreY, MoreZ = AddX, AddY, AddZ
+    if Relative then
+        local FVect, RVect, UpVect, Vect = v3.new(), v3.new(), v3.new(), v3.new()
+		ENTITY.GET_ENTITY_MATRIX(Entity, FVect, RVect, UpVect, Vect)
+        MoreX = (FVect.x * AddY) + (RVect.x * AddX) + (UpVect.x + AddZ)
+        MoreY = (FVect.y * AddY) + (RVect.y * AddX) + (UpVect.y + AddZ)
+        MoreZ = (FVect.z * AddY) + (RVect.z * AddX) + (UpVect.z + AddZ)
+    end
+    ENTITY.SET_ENTITY_VELOCITY(Entity, (NewV3.x) + MoreX, (NewV3.y) + MoreY, (NewV3.z) + MoreZ)
+end
