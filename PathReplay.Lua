@@ -201,6 +201,11 @@ end)
 --	NormalMul = OnChange / 100
 --end)
 
+local FrameStartIndex = 1
+menu.slider(SoloRecordingMenu, "Frame Start Index", {"setstartingframe"}, "Useful to jump to a specific part of the replay.", 1, 50000000, 1, 1000, function(OnChange)
+	FrameStartIndex = OnChange
+end)
+
 local Model = "shinobi"
 menu.text_input(SoloRecordingMenu, "Set Veh Model", {"setvehmodel"}, "Vehicle model will be created to perform the replay.", function(OnChange)
 	if STREAMING.IS_MODEL_VALID(joaat(OnChange)) then
@@ -230,6 +235,7 @@ menu.toggle(SoloRecordingMenu, "Replay Teleport Mode", {}, "Use teleportation in
 	ReplayTeleportMode = toggle
 end, ReplayTeleportMode)
 
+local UseMilisAdjustLoop = true
 local StartedFromScript = false
 local ReplayVehsT = {}
 local StartReplay = false
@@ -240,11 +246,10 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 			ReplayVehsT[#ReplayVehsT+1] = {
 				VehHandle = 0,
 				ModelHash = 0,
-				Paths = GetVectorsTable(k),
+				Paths = GetVectorsTable(k, true, false),
 				Index = 0,
 				Blip = 0,
 				StartTimer = 0,
-				CheckedPedForVeh = false,
 				PedHandle = 0,
 				PedBlip = 0
 			}
@@ -306,22 +311,44 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 				local Veh = ReplayVehsT[k].VehHandle
 				if Veh ~= 0 and ENTITY.DOES_ENTITY_EXIST(Veh) then
 					if ReplayVehsT[k].Index == 0 then
-						ReplayVehsT[k].Index = ReplayVehsT[k].Index + 1
-						ENTITY.SET_ENTITY_COORDS(Veh, ReplayVehsT[k].Paths[1].x, ReplayVehsT[k].Paths[1].y, ReplayVehsT[k].Paths[1].z)
-						ENTITY.SET_ENTITY_ROTATION(Veh, ReplayVehsT[k].Paths[1].RotX, ReplayVehsT[k].Paths[1].RotY, ReplayVehsT[k].Paths[1].RotZ, 5)
-						ReplayVehsT[k].StartTimer = GameTimer
+						ReplayVehsT[k].Index = FrameStartIndex
+						local PathsData = ReplayVehsT[k].Paths[FrameStartIndex] or ReplayVehsT[k].Paths[1]
+						ENTITY.SET_ENTITY_COORDS(Veh, PathsData.x, PathsData.y, PathsData.z)
+						ENTITY.SET_ENTITY_ROTATION(Veh, PathsData.RotX, PathsData.RotY, PathsData.RotZ, 5)
+						ReplayVehsT[k].StartTimer = StartTimer
+						if FrameStartIndex > 1 then
+							if ReplayVehsT[k].Index > 0 and ReplayVehsT[k].Index < #ReplayVehsT[k].Paths then
+								local Frame1, Frame2 = ReplayVehsT[k].Paths[ReplayVehsT[k].Index], ReplayVehsT[k].Paths[ReplayVehsT[k].Index + 1]
+								ReplayVehsT[k].StartTimer = StartTimer - (Frame2.CurGameTime - ReplayVehsT[k].Paths[1].CurGameTime)
+								--Print("ReplayVehsT[k].StartTimer "..ReplayVehsT[k].StartTimer.." StartTimer "..StartTimer)
+							end
+						end
 					end
 					if ReplayVehsT[k].Index > 0 and ReplayVehsT[k].Index < #ReplayVehsT[k].Paths then
 						local CurrentTime = GameTimer - ReplayVehsT[k].StartTimer
 						local Frame1, Frame2 = ReplayVehsT[k].Paths[ReplayVehsT[k].Index], ReplayVehsT[k].Paths[ReplayVehsT[k].Index + 1]
-						if CurrentTime > (Frame2.CurGameTime - ReplayVehsT[k].Paths[1].CurGameTime) then
-							ReplayVehsT[k].Index = ReplayVehsT[k].Index + 1
-							if ReplayVehsT[k].Index >= #ReplayVehsT[k].Paths then
-								ReplayVehsT[k].Index = #ReplayVehsT[k].Paths
-							else
-								Frame1, Frame2 = ReplayVehsT[k].Paths[ReplayVehsT[k].Index], ReplayVehsT[k].Paths[ReplayVehsT[k].Index + 1]
+						if UseMilisAdjustLoop then
+							while CurrentTime > (Frame2.CurGameTime - ReplayVehsT[k].Paths[1].CurGameTime) do
+								ReplayVehsT[k].Index = ReplayVehsT[k].Index + 1
+								if ReplayVehsT[k].Index >= #ReplayVehsT[k].Paths then
+									ReplayVehsT[k].Index = #ReplayVehsT[k].Paths
+									break
+								else
+									Frame1, Frame2 = ReplayVehsT[k].Paths[ReplayVehsT[k].Index], ReplayVehsT[k].Paths[ReplayVehsT[k].Index + 1]
+								end
+								CurrentTime = MISC.GET_GAME_TIMER() - ReplayVehsT[k].StartTimer
+							end
+						else
+							if CurrentTime > (Frame2.CurGameTime - ReplayVehsT[k].Paths[1].CurGameTime) then
+								ReplayVehsT[k].Index = ReplayVehsT[k].Index + 1
+								if ReplayVehsT[k].Index >= #ReplayVehsT[k].Paths then
+									ReplayVehsT[k].Index = #ReplayVehsT[k].Paths
+								else
+									Frame1, Frame2 = ReplayVehsT[k].Paths[ReplayVehsT[k].Index], ReplayVehsT[k].Paths[ReplayVehsT[k].Index + 1]
+								end
 							end
 						end
+						
 						--directx.draw_text(0.5, 0.5, "CurrentTime "..CurrentTime, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
 						--directx.draw_text(0.5, 0.6, "Frame2.CurGameTime - ReplayVehsT[k].Paths[1].CurGameTime "..Frame2.CurGameTime - ReplayVehsT[k].Paths[1].CurGameTime, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
 						local Coord = {
@@ -349,7 +376,7 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 							false, false, false, Vel.x, Vel.y, Vel.z, false, false, nil)
 							RotateEntityToTargetRotation(Veh, Rot, 10.0)
 						else
-							ENTITY.SET_ENTITY_COORDS(Veh, Coord.x, Coord.y, Coord.z)
+							ENTITY.SET_ENTITY_COORDS_NO_OFFSET(Veh, Coord.x, Coord.y, Coord.z)
 							ENTITY.SET_ENTITY_ROTATION(Veh, Rot.x, Rot.y, Rot.z, 5)
 							ENTITY.SET_ENTITY_VELOCITY(Veh, Vel.x, Vel.y, Vel.z)
 							ENTITY.SET_ENTITY_ANGULAR_VELOCITY(Veh, AngVel.x, AngVel.y, AngVel.z)
@@ -511,9 +538,11 @@ function split_number(str)
 	return t
 end
 
-function GetVectorsTable(FileName)
+local MaxIt = 1000
+function GetVectorsTable(FileName, DelayLoad, GetOnlyFirstData)
 	local VectorTable = {}
 	local Vectors = file_lines(FileName)
+	local It = 0
 	for i = 1, #Vectors do
 		local Number = split_number(Vectors[i])
 		VectorTable[#VectorTable+1] = {
@@ -523,6 +552,16 @@ function GetVectorsTable(FileName)
 			AngVelX = Number[10], AngVelY = Number[11], AngVelZ = Number[12],
 			CurGameTime = Number[13], ModelHash = Number[14]
 		}
+		if DelayLoad then
+			It = It + 1
+			if It > MaxIt then
+				It = 0
+				Wait()
+			end
+		end
+		if GetOnlyFirstData then
+			break
+		end
 	end
 	return VectorTable
 end
