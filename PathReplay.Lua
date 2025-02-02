@@ -250,45 +250,47 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 			}
 		end
 		for k = 1, #ReplayVehsT do
-			ReplayVehsT[k].ModelHash = ReplayVehsT[k].Paths[1].ModelHash or joaat(Model)
-			if ReplayVehsT[k].VehHandle == 0 then
-				STREAMING.REQUEST_MODEL(ReplayVehsT[k].ModelHash)
-				while not STREAMING.HAS_MODEL_LOADED(ReplayVehsT[k].ModelHash) do
-					Wait()
-				end
-				ReplayVehsT[k].VehHandle = VEHICLE.CREATE_VEHICLE(ReplayVehsT[k].ModelHash, ReplayVehsT[k].Paths[1].x, ReplayVehsT[k].Paths[1].y, ReplayVehsT[k].Paths[1].z, ReplayVehsT[k].Paths[1].RotZ, true, true, false)
-				if ReplayVehsT[k].VehHandle ~= 0 then
-					STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(ReplayVehsT[k].ModelHash)
-					ENTITY.SET_ENTITY_AS_MISSION_ENTITY(ReplayVehsT[k].VehHandle, false, true)
-					entities.set_can_migrate(ReplayVehsT[k].VehHandle, false)
-					ENTITY.SET_ENTITY_INVINCIBLE(ReplayVehsT[k].VehHandle, true)
-					NETWORK.NETWORK_SET_ENTITY_CAN_BLEND(ReplayVehsT[k].VehHandle, true)
-					ReplayVehsT[k].Blip = HUD.ADD_BLIP_FOR_ENTITY(ReplayVehsT[k].VehHandle)
-					HUD.SET_BLIP_COLOUR(ReplayVehsT[k].Blip, 3)
-					if CreatePedToReplay then
-						if VEHICLE.IS_VEHICLE_DRIVEABLE(ReplayVehsT[k].VehHandle, false) then
-							STREAMING.REQUEST_MODEL(joaat(PedModel))
-							while not STREAMING.HAS_MODEL_LOADED(joaat(PedModel)) do
-								Wait()
-							end
-							ReplayVehsT[k].PedHandle = PED.CREATE_PED_INSIDE_VEHICLE(ReplayVehsT[k].VehHandle, 28, joaat(PedModel), -1, true, true)
-							if ReplayVehsT[k].PedHandle ~= 0 then
-								STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(joaat(PedModel))
-								ENTITY.SET_ENTITY_AS_MISSION_ENTITY(ReplayVehsT[k].PedHandle, false, true)
-								entities.set_can_migrate(ReplayVehsT[k].PedHandle, false)
-								ENTITY.SET_ENTITY_INVINCIBLE(ReplayVehsT[k].PedHandle, true)
-								NETWORK.NETWORK_SET_ENTITY_CAN_BLEND(ReplayVehsT[k].PedHandle, true)
-								ReplayVehsT[k].PedBlip = HUD.ADD_BLIP_FOR_ENTITY(ReplayVehsT[k].PedHandle)
-								HUD.SET_BLIP_COLOUR(ReplayVehsT[k].PedBlip, 1)
-								HUD.SHOW_HEADING_INDICATOR_ON_BLIP(ReplayVehsT[k].PedBlip, true)
-								PED.SET_PED_COMBAT_ATTRIBUTES(ReplayVehsT[k].PedHandle, 3, false)
-							else
-								STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(joaat(PedModel))
+			if ReplayVehsT[k].Paths ~= nil and ReplayVehsT[k].Paths[1] ~= nil then
+				ReplayVehsT[k].ModelHash = ReplayVehsT[k].Paths[1].ModelHash or joaat(Model)
+				if ReplayVehsT[k].VehHandle == 0 then
+					STREAMING.REQUEST_MODEL(ReplayVehsT[k].ModelHash)
+					while not STREAMING.HAS_MODEL_LOADED(ReplayVehsT[k].ModelHash) do
+						Wait()
+					end
+					ReplayVehsT[k].VehHandle = VEHICLE.CREATE_VEHICLE(ReplayVehsT[k].ModelHash, ReplayVehsT[k].Paths[1].x, ReplayVehsT[k].Paths[1].y, ReplayVehsT[k].Paths[1].z, ReplayVehsT[k].Paths[1].RotZ, true, true, false)
+					if ReplayVehsT[k].VehHandle ~= 0 then
+						STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(ReplayVehsT[k].ModelHash)
+						ENTITY.SET_ENTITY_AS_MISSION_ENTITY(ReplayVehsT[k].VehHandle, false, true)
+						entities.set_can_migrate(ReplayVehsT[k].VehHandle, false)
+						ENTITY.SET_ENTITY_INVINCIBLE(ReplayVehsT[k].VehHandle, true)
+						NETWORK.NETWORK_SET_ENTITY_CAN_BLEND(ReplayVehsT[k].VehHandle, true)
+						ReplayVehsT[k].Blip = HUD.ADD_BLIP_FOR_ENTITY(ReplayVehsT[k].VehHandle)
+						HUD.SET_BLIP_COLOUR(ReplayVehsT[k].Blip, 3)
+						if CreatePedToReplay then
+							if VEHICLE.IS_VEHICLE_DRIVEABLE(ReplayVehsT[k].VehHandle, false) then
+								STREAMING.REQUEST_MODEL(joaat(PedModel))
+								while not STREAMING.HAS_MODEL_LOADED(joaat(PedModel)) do
+									Wait()
+								end
+								ReplayVehsT[k].PedHandle = PED.CREATE_PED_INSIDE_VEHICLE(ReplayVehsT[k].VehHandle, 28, joaat(PedModel), -1, true, true)
+								if ReplayVehsT[k].PedHandle ~= 0 then
+									STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(joaat(PedModel))
+									ENTITY.SET_ENTITY_AS_MISSION_ENTITY(ReplayVehsT[k].PedHandle, false, true)
+									entities.set_can_migrate(ReplayVehsT[k].PedHandle, false)
+									ENTITY.SET_ENTITY_INVINCIBLE(ReplayVehsT[k].PedHandle, true)
+									NETWORK.NETWORK_SET_ENTITY_CAN_BLEND(ReplayVehsT[k].PedHandle, true)
+									ReplayVehsT[k].PedBlip = HUD.ADD_BLIP_FOR_ENTITY(ReplayVehsT[k].PedHandle)
+									HUD.SET_BLIP_COLOUR(ReplayVehsT[k].PedBlip, 1)
+									HUD.SHOW_HEADING_INDICATOR_ON_BLIP(ReplayVehsT[k].PedBlip, true)
+									PED.SET_PED_COMBAT_ATTRIBUTES(ReplayVehsT[k].PedHandle, 3, false)
+								else
+									STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(joaat(PedModel))
+								end
 							end
 						end
+					else
+						STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(ReplayVehsT[k].ModelHash)
 					end
-				else
-					STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(ReplayVehsT[k].ModelHash)
 				end
 			end
 		end
