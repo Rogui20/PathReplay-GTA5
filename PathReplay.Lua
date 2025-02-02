@@ -251,7 +251,8 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 				Blip = 0,
 				StartTimer = 0,
 				PedHandle = 0,
-				PedBlip = 0
+				PedBlip = 0,
+				HasSetStartTimer = false
 			}
 		end
 		for k = 1, #ReplayVehsT do
@@ -271,6 +272,7 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 						NETWORK.NETWORK_SET_ENTITY_CAN_BLEND(ReplayVehsT[k].VehHandle, true)
 						ReplayVehsT[k].Blip = HUD.ADD_BLIP_FOR_ENTITY(ReplayVehsT[k].VehHandle)
 						HUD.SET_BLIP_COLOUR(ReplayVehsT[k].Blip, 3)
+						UpgradeVehicle(ReplayVehsT[k].VehHandle, true, true, true)
 						if CreatePedToReplay then
 							if VEHICLE.IS_VEHICLE_DRIVEABLE(ReplayVehsT[k].VehHandle, false) then
 								STREAMING.REQUEST_MODEL(joaat(PedModel))
@@ -315,7 +317,12 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 						local PathsData = ReplayVehsT[k].Paths[FrameStartIndex] or ReplayVehsT[k].Paths[1]
 						ENTITY.SET_ENTITY_COORDS(Veh, PathsData.x, PathsData.y, PathsData.z)
 						ENTITY.SET_ENTITY_ROTATION(Veh, PathsData.RotX, PathsData.RotY, PathsData.RotZ, 5)
-						ReplayVehsT[k].StartTimer = StartTimer
+						if not ReplayVehsT[k].HasSetStartTimer then
+							ReplayVehsT[k].HasSetStartTimer = true
+							ReplayVehsT[k].StartTimer = StartTimer
+						else
+							ReplayVehsT[k].StartTimer = GameTimer
+						end
 						if FrameStartIndex > 1 then
 							if ReplayVehsT[k].Index > 0 and ReplayVehsT[k].Index < #ReplayVehsT[k].Paths then
 								local Frame1, Frame2 = ReplayVehsT[k].Paths[ReplayVehsT[k].Index], ReplayVehsT[k].Paths[ReplayVehsT[k].Index + 1]
@@ -1426,6 +1433,28 @@ function SetEntitySpeedToCoord(Entity, CoordTarget, Mul, IgnoreX, IgnoreY, Ignor
         MoreZ = (FVect.z * AddY) + (RVect.z * AddX) + (UpVect.z + AddZ)
     end
     ENTITY.SET_ENTITY_VELOCITY(Entity, (NewV3.x) + MoreX, (NewV3.y) + MoreY, (NewV3.z) + MoreZ)
+end
+
+function UpgradeVehicle(Vehicle, RandomUpgrade, SetRandomColors, SetRandomCustomColors)
+    VEHICLE.SET_VEHICLE_MOD_KIT(Vehicle, 0)
+    if RandomUpgrade then
+        for k = 0, 48 do
+            local Max = VEHICLE.GET_NUM_VEHICLE_MODS(Vehicle, k)
+            VEHICLE.SET_VEHICLE_MOD(Vehicle, k, math.random(0, math.max(0, Max-1)), false)
+        end
+    else
+        for k = 0, 48 do
+            local Max = VEHICLE.GET_NUM_VEHICLE_MODS(Vehicle, k)
+            VEHICLE.SET_VEHICLE_MOD(Vehicle, k, Max-1, false)
+        end
+    end
+    if SetRandomColors then
+        VEHICLE.SET_VEHICLE_COLOURS(Vehicle, math.random(0, 222), math.random(0, 222))
+    end
+    if SetRandomCustomColors then
+        VEHICLE.SET_VEHICLE_CUSTOM_PRIMARY_COLOUR(Vehicle, math.random(0, 255), math.random(0, 255), math.random(0, 255))
+        VEHICLE.SET_VEHICLE_CUSTOM_SECONDARY_COLOUR(Vehicle, math.random(0, 255), math.random(0, 255), math.random(0, 255))
+    end
 end
 
 --local ScriptedToolsMenu = menu.list(menu.my_root(), "Scripted Tools", {}, "")
