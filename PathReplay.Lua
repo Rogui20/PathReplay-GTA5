@@ -58,6 +58,7 @@ local function SetFilesList(directory, query, results)
 end
 
 local ReplaysToLoad = {}
+local MultiplayerRecordingPTR = nil
 
 local SoloRecordingMenu = menu.list(menu.my_root(), "Solo Recording", {}, "Record solo tools.")
 
@@ -235,7 +236,9 @@ menu.toggle(SoloRecordingMenu, "Replay Teleport Mode", {}, "Use teleportation in
 	ReplayTeleportMode = toggle
 end, ReplayTeleportMode)
 
+
 local UseMilisAdjustLoop = true
+local Multiplayer_StartedFromScript = false
 local StartedFromScript = false
 local ReplayVehsT = {}
 local StartReplay = false
@@ -308,6 +311,10 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 			if StartedFromScript then
 				StartedFromScript = false
 				menu.set_value(StartRecordingPTR, true)
+			end
+			if Multiplayer_StartedFromScript then
+				Multiplayer_StartedFromScript = false
+				menu.set_value(MultiplayerRecordingPTR, true)
 			end
 			for k = 1, #ReplayVehsT do
 				local Veh = ReplayVehsT[k].VehHandle
@@ -717,10 +724,10 @@ end
 local MultiplayerRecording = menu.list(menu.my_root(), "Multiplayer Recording", {}, "Record and load with more than 1 vehicle tools.")
 
 
-local FolderSelectMenu = menu.list(MultiplayerRecording, "Load Multiplayer Replay", {"loadmultiplayerreplaymenu"}, "", function() CreateMenuItemsFolder() end
-, function ()
-	CreateMenuItemsFolder()
-end)
+--local FolderSelectMenu = menu.list(MultiplayerRecording, "Load Multiplayer Replay", {"loadmultiplayerreplaymenu"}, "", function() CreateMenuItemsFolder() end
+--, function ()
+--	CreateMenuItemsFolder()
+--end)
 
 local PlayersToRecord = {}
 local PlayersToRecordMenu = menu.list(MultiplayerRecording, "Which Players Record", {}, "Select players to record.", function()UpdatePlayersList()end, function()UpdatePlayersList()end)
@@ -823,7 +830,7 @@ menu.text_input(MultiplayerRecording, "Set Folder Name", {"setfoldername"}, "Set
 end, FolderNameForSave)
 
 local StartRecordMultiplayer = false
-menu.toggle(MultiplayerRecording, "Start Multiplayer Recording", {}, "", function(toggle)
+MultiplayerRecordingPTR = menu.toggle(MultiplayerRecording, "Start Multiplayer Recording", {}, "", function(toggle)
 	StartRecordMultiplayer = toggle
 	if StartRecordMultiplayer then
 		local Dir = PathDirSaveds..FolderNameForSave
@@ -881,6 +888,11 @@ menu.toggle(MultiplayerRecording, "Start Multiplayer Recording", {}, "", functio
 			WriteFile(Dir..k..".txt", BigText)
 		end
 	end
+end)
+
+menu.action(MultiplayerRecording, "Load Replays And Start Recording", {}, "If you want to combine replays, this is useful.", function(toggle)
+	Multiplayer_StartedFromScript = true
+	menu.set_value(StartSelectedReplaysPTR, true)
 end)
 
 --local MultiplayerModel = "elegy"
@@ -1772,6 +1784,11 @@ menu.toggle(GameModesMenu, "Comboy Wars", {}, "", function(toggle)
 										local bVar0 = math.random(0, 65535)
 										DECORATOR.DECOR_SET_INT(Vehs[k].Handle, "RespawnVeh", bVar0);
 									end
+									if k > 1 and k <= 5 then
+										if Vehs[k-1] ~= nil and not Vehs[k-1].IsDead then
+											ENTITY.SET_ENTITY_NO_COLLISION_ENTITY(Vehs[k].Handle, Vehs[k-1].Handle, false)
+										end
+									end
 								end
 								if Vehs[k].Index > 0 and Vehs[k].Index < #Vehs[k].PathsTable and GameTimer >= Vehs[k].StartMilis+Vehs[k].Delay then
 									if not Vehs[k].HasPassedDelay then
@@ -1880,7 +1897,7 @@ menu.toggle(GameModesMenu, "Comboy Wars", {}, "", function(toggle)
 								CurSwitchIndexTeam2 = CurSwitchIndexTeam2 + 1
 							end
 						else
-							CurSwitchIndexTeam2 = 2
+							CurSwitchIndexTeam2 = 7
 						end
 					end
 				end
@@ -2059,3 +2076,11 @@ function PredictEntityOffsetCoords(entity, offset, dt, angularVelocity)
     
     return offsetPos
 end
+
+--menu.action(menu.my_root(), "Test", {}, "", function(toggle)
+--	local Veh = PED.GET_VEHICLE_PED_IS_IN(PLAYER.PLAYER_PED_ID(), true)
+--	if Veh ~= 0 then
+--		--NETWORK.SET_NETWORK_VEHICLE_AS_GHOST(Veh, true)
+--		ENTITY.SET_ENTITY_COLLISION(Veh, false, true)
+--	end
+--end)
