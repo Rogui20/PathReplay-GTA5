@@ -1458,3 +1458,604 @@ function UpgradeVehicle(Vehicle, RandomUpgrade, SetRandomColors, SetRandomCustom
 end
 
 --local ScriptedToolsMenu = menu.list(menu.my_root(), "Scripted Tools", {}, "")
+
+local GameModesMenu = menu.list(menu.my_root(), "Game Modes", {}, "")
+
+local CargobobChaseWars = false
+menu.toggle(GameModesMenu, "Cargobob VS Speedo Chase", {}, "", function(toggle)
+	CargobobChaseWars = toggle
+	if CargobobChaseWars then
+		local Paths1 = GetVectorsTable(PathDirSaveds.."ChaseBob1.txt", true, false)
+		local Paths2 = GetVectorsTable(PathDirSaveds.."ChaseBob2.txt", true, false)
+		local Paths = {Paths1, Paths2}
+		local Vehs = {}
+		local Objs = {}
+		local VehsLocal = SplitGlobals("Local_22995.f_834.f_81")
+		local ObjsLocal = SplitGlobals("Local_22995.f_834.f_147")
+		local Spd = {13, 10}
+		local StartTimer = 0
+		local Started = false
+		local SwitchIDsMilis = 0
+		local PlayerID = PLAYER.PLAYER_ID()
+		while CargobobChaseWars do
+			if SCRIPT.GET_NUMBER_OF_THREADS_RUNNING_THE_SCRIPT_WITH_THIS_HASH(joaat("fm_mission_controller")) > 0 then
+				if PLAYER.IS_PLAYER_CONTROL_ON(PLAYER.PLAYER_ID()) then
+					if not Started then
+						StartTimer = MISC.GET_GAME_TIMER()
+					end
+				 	Started = true
+				end
+				if Started then
+					local TimeStep = SYSTEM.TIMESTEP()
+					local GameTimer = MISC.GET_GAME_TIMER()
+					for k = 1, 4 do
+						if k <= 2 then
+							if Vehs[k] == nil then
+								local NetID = memory.read_int(memory.script_local("fm_mission_controller", VehsLocal+k))
+								if NetID ~= 0 then
+									local Handle = 0
+									util.spoof_script("fm_mission_controller", function()
+										Handle = NETWORK.NET_TO_VEH(NetID)
+									end)
+									if Handle ~= 0 then
+										Vehs[k] = {Handle = Handle, NetID = NetID, PathsTable = Paths[k], Index = 1}
+									end
+								end
+							end
+						end
+						if k >= 3 then
+							if Vehs[k] == nil then
+								local NetID = memory.read_int(memory.script_local("fm_mission_controller", VehsLocal+k))
+								if NetID ~= 0 then
+									local Handle = 0
+									util.spoof_script("fm_mission_controller", function()
+										Handle = NETWORK.NET_TO_VEH(NetID)
+									end)
+									if Handle ~= 0 then
+										Vehs[k] = {Handle = Handle, NetID = NetID}
+									end
+								end
+							end
+						end
+					end
+					for k = 1, 4 do
+						if Vehs[k] ~= nil then
+							if ENTITY.DOES_ENTITY_EXIST(Vehs[k].Handle) then
+								if RequestControlOfEntity(Vehs[k].Handle) then
+									NETWORK.NETWORK_SET_ENTITY_CAN_BLEND(Vehs[k].Handle, true)
+									entities.set_can_migrate(Vehs[k].Handle, false)
+									ENTITY.SET_ENTITY_HAS_GRAVITY(Vehs[k].Handle, false)
+									if k >= 3 then
+										ENTITY.SET_ENTITY_NO_COLLISION_ENTITY(Vehs[k].Handle, Vehs[2].Handle, false)
+										if not DECORATOR.DECOR_EXIST_ON(Vehs[k].Handle, "RespawnVeh") then
+											local bVar0 = math.random(0, 65535)
+											DECORATOR.DECOR_SET_INT(Vehs[k].Handle, "RespawnVeh", bVar0);
+										end
+										local Speed = ENTITY.GET_ENTITY_VELOCITY(Vehs[2].Handle)
+										local Pos = nil
+										if k == 3 then
+											Pos = ENTITY.GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS(Vehs[2].Handle, -5.25, 1.5, 0.0)
+										end
+										if k == 4 then
+											Pos = ENTITY.GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS(Vehs[2].Handle, 5.25, 1.5, 0.0)
+										end
+										local FinalPos = {
+											x = Pos.x + Speed.x * 1.0,
+											y = Pos.y + Speed.y * 1.0,
+											z = Pos.z + Speed.z * 1.0,
+										}
+										Speed:mul(0.0)
+										SetEntitySpeedToCoord(Vehs[k].Handle, FinalPos, 1.0, false, false, false, Speed.x, Speed.y, Speed.z, false, false, nil)
+										--local Rot = ENTITY.GET_ENTITY_ROTATION(Vehs[2].Handle, 5)
+										local CamRot = players.get_cam_rot(PlayerID)
+										local NewRot = convertRotationXYZtoZYX(CamRot.x, CamRot.y, CamRot.z)
+										RotateEntityToTargetRotation(Vehs[k].Handle, NewRot, 10.0)
+									end
+									--ENTITY.SET_ENTITY_INVINCIBLE(Vehs[k].Handle, true)
+								end
+								if k <= 2 then
+									--ENTITY.SET_ENTITY_NO_COLLISION_ENTITY(Vehs[1].Handle, Vehs[2].Handle, false)
+									--ENTITY.SET_ENTITY_NO_COLLISION_ENTITY(Vehs[2].Handle, Vehs[1].Handle, false)
+									if k == 2 then
+										VEHICLE.SET_VEHICLE_DOOR_CONTROL(Vehs[k].Handle, 2, 180, 180.0)
+										VEHICLE.SET_DOOR_ALLOWED_TO_BE_BROKEN_OFF(Vehs[k].Handle, 2, false)
+										VEHICLE.SET_HELI_TAIL_ROTOR_HEALTH(Vehs[k].Handle, 100000.0)
+										VEHICLE.SET_HELI_MAIN_ROTOR_HEALTH(Vehs[k].Handle, 100000.0)
+										VEHICLE.SET_HELI_TAIL_BOOM_CAN_BREAK_OFF(Vehs[k].Handle, false)
+									end
+									if Vehs[k].Index > 0 and Vehs[k].Index < #Vehs[k].PathsTable then
+										local CurrentTime = GameTimer - StartTimer
+										local Frame1, Frame2 = Vehs[k].PathsTable[Vehs[k].Index], Vehs[k].PathsTable[Vehs[k].Index + 1]
+										if UseMilisAdjustLoop then
+											while CurrentTime > (Frame2.CurGameTime - Vehs[k].PathsTable[1].CurGameTime) do
+												Vehs[k].Index = Vehs[k].Index + 1
+												if Vehs[k].Index >= #Vehs[k].PathsTable then
+													Vehs[k].Index = #Vehs[k].PathsTable
+													break
+												else
+													Frame1, Frame2 = Vehs[k].PathsTable[Vehs[k].Index], Vehs[k].PathsTable[Vehs[k].Index + 1]
+												end
+												CurrentTime = MISC.GET_GAME_TIMER() - StartTimer
+											end
+										else
+											if CurrentTime > (Frame2.CurGameTime - Vehs[k].PathsTable[1].CurGameTime) then
+												Vehs[k].Index = Vehs[k].Index + 1
+												if Vehs[k].Index >= #Vehs[k].PathsTable then
+													Vehs[k].Index = #Vehs[k].PathsTable
+												else
+													Frame1, Frame2 = Vehs[k].PathsTable[Vehs[k].Index], Vehs[k].PathsTable[Vehs[k].Index + 1]
+												end
+											end
+										end
+										local Veh = Vehs[k].Handle
+										--directx.draw_text(0.5, 0.5, "CurrentTime "..CurrentTime, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
+										--directx.draw_text(0.5, 0.6, "Frame2.CurGameTime - ReplayVehsT[k].Paths[1].CurGameTime "..Frame2.CurGameTime - ReplayVehsT[k].Paths[1].CurGameTime, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
+										local Coord = {
+											x = Vehs[k].PathsTable[Vehs[k].Index].x,
+											y = Vehs[k].PathsTable[Vehs[k].Index].y,
+											z = Vehs[k].PathsTable[Vehs[k].Index].z
+										}
+										local Rot = {
+											x = Vehs[k].PathsTable[Vehs[k].Index].RotX,
+											y = Vehs[k].PathsTable[Vehs[k].Index].RotY,
+											z = Vehs[k].PathsTable[Vehs[k].Index].RotZ
+										}
+										local Vel = {
+											x = Vehs[k].PathsTable[Vehs[k].Index].VelX,
+											y = Vehs[k].PathsTable[Vehs[k].Index].VelY,
+											z = Vehs[k].PathsTable[Vehs[k].Index].VelZ
+										}
+										local AngVel = {
+											x = Vehs[k].PathsTable[Vehs[k].Index].AngVelX,
+											y = Vehs[k].PathsTable[Vehs[k].Index].AngVelY,
+											z = Vehs[k].PathsTable[Vehs[k].Index].AngVelZ
+										}
+										--if not ReplayTeleportMode then
+											SetEntitySpeedToCoord(Veh, Coord, 1.0,
+											false, false, false, Vel.x, Vel.y, Vel.z, false, false, nil)
+											RotateEntityToTargetRotation(Veh, Rot, 10.0)
+										--end
+									end
+								end
+							end
+						end
+					end
+					if Vehs[2] ~= nil then
+						for k = 1, 1 do
+							if Objs[k] == nil then
+								local NetID = memory.read_int(memory.script_local("fm_mission_controller", ObjsLocal+k))
+								if NetID ~= 0 then
+									local Handle = 0
+									util.spoof_script("fm_mission_controller", function()
+										Handle = NETWORK.NET_TO_OBJ(NetID)
+									end)
+									if Handle ~= 0 then
+										Objs[k] = {Handle = Handle, Offset = nil}
+									end
+								end
+							end
+							if Objs[k] ~= nil then
+								if ENTITY.DOES_ENTITY_EXIST(Objs[k].Handle) then
+									if RequestControlOfEntity(Objs[k].Handle) then
+										entities.set_can_migrate(Objs[k].Handle, false)
+										--ENTITY.SET_ENTITY_COMPLETELY_DISABLE_COLLISION(Objs[k].Handle, false, true)
+									end
+									if Vehs[3] ~= nil then
+										if not ENTITY.IS_ENTITY_ATTACHED(Vehs[3].Handle) then
+											--ENTITY.ATTACH_ENTITY_TO_ENTITY(Vehs[3].Handle, Objs[k].Handle, 0, -3.25, 1.5, 0.0, 0.0, 0.0, 0.0, true, false, false, false, 2, true, false)
+											--ENTITY.ATTACH_ENTITY_TO_ENTITY_PHYSICALLY(Vehs[3].Handle, Objs[k].Handle, 0, 0, -3.25, 1.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0, true, true, false, true, 2)
+											--ENTITY.SET_ENTITY_COMPLETELY_DISABLE_COLLISION(Vehs[3].Handle, false, true)
+										end
+									end
+									if Vehs[4] ~= nil then
+										if not ENTITY.IS_ENTITY_ATTACHED(Vehs[4].Handle) then
+											--ENTITY.ATTACH_ENTITY_TO_ENTITY(Vehs[4].Handle, Objs[k].Handle, 0, 3.25, 1.5, 0.0, 0.0, 0.0, 0.0, true, false, false, false, 2, true, false)
+											--ENTITY.ATTACH_ENTITY_TO_ENTITY_PHYSICALLY(Vehs[4].Handle, Objs[k].Handle, 0, 0, 3.25, 1.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0, true, true, false, true, 2)
+											--ENTITY.SET_ENTITY_COMPLETELY_DISABLE_COLLISION(Vehs[4].Handle, false, true)
+										end
+									end
+									if Objs[k].Offset == nil then
+										Objs[k].Offset = {x = 0.0, y = 0.0, z = 0.0}
+									end
+									ENTITY.SET_ENTITY_COMPLETELY_DISABLE_COLLISION(Objs[k].Handle, false, true)
+									ENTITY.SET_ENTITY_HAS_GRAVITY(Objs[k].Handle, false)
+									local Speed = ENTITY.GET_ENTITY_VELOCITY(Vehs[2].Handle)
+									local Pos = ENTITY.GET_ENTITY_COORDS(Vehs[2].Handle)
+									local FinalPos = {
+										x = Pos.x + Speed.x * 1.0,
+										y = Pos.y + Speed.y * 1.0,
+										z = Pos.z + Speed.z * 1.0,
+									}
+									Speed:mul(0.0)
+									SetEntitySpeedToCoord(Objs[k].Handle, FinalPos, 1.0, false, false, false, Speed.x, Speed.y, Speed.z, false, false, nil)
+									local Rot = ENTITY.GET_ENTITY_ROTATION(Vehs[2].Handle, 5)
+									RotateEntityToTargetRotation(Objs[k].Handle, Rot, 10.0)
+								end
+							end
+						end
+					end
+					if Vehs[3] ~= nil and Vehs[4] ~= nil then
+						if GameTimer > SwitchIDsMilis+5000 then
+							local IsHostOfScript = false
+							util.spoof_script("fm_mission_controller", function()
+								IsHostOfScript = NETWORK.NETWORK_IS_HOST_OF_THIS_SCRIPT()
+							end)
+							if IsHostOfScript then
+								SwitchIDsMilis = GameTimer
+								local NetID1 = Vehs[3].NetID
+								local NetID2 = Vehs[4].NetID
+								local Addr1 = memory.script_local("fm_mission_controller", VehsLocal+3)
+								local Addr2 = memory.script_local("fm_mission_controller", VehsLocal+4)
+								memory.write_int(Addr1, NetID2)
+								memory.write_int(Addr2, NetID1)
+								Vehs[3].NetID = NetID2
+								Vehs[4].NetID = NetID1
+							end
+						end
+					end
+				end
+			else
+				Started = false
+				for k = 1, 4 do
+					Vehs[k] = nil
+				end
+				for k = 1, 12 do
+					Objs[k] = nil
+				end
+			end
+			Wait()
+		end
+	end
+end)
+
+local ComboyWars = false
+menu.toggle(GameModesMenu, "Comboy Wars", {}, "", function(toggle)
+	ComboyWars = toggle
+	if ComboyWars then
+		local Paths1 = GetVectorsTable(PathDirSaveds.."ChaseBob1.txt", true, false)
+		local Paths2 = GetVectorsTable(PathDirSaveds.."ChaseBob2.txt", true, false)
+		local Paths = {Paths1, Paths2}
+		local Vehs = {}
+		local Objs = {}
+		local VehsLocal = SplitGlobals("Local_22995.f_834.f_81")
+		local ObjsLocal = SplitGlobals("Local_22995.f_834.f_147")
+		local Spd = {13, 10}
+		local StartTimer = 0
+		local Started = false
+		local SwitchIDsMilisTeam1 = 0
+		local SwitchIDsMilisTeam2 = 0
+		local CurSwitchIndexTeam1 = 2
+		local CurSwitchIndexTeam2 = 7
+		while ComboyWars do
+			if SCRIPT.GET_NUMBER_OF_THREADS_RUNNING_THE_SCRIPT_WITH_THIS_HASH(joaat("fm_mission_controller")) > 0 then
+				if PLAYER.IS_PLAYER_CONTROL_ON(PLAYER.PLAYER_ID()) then
+					if not Started then
+						StartTimer = MISC.GET_GAME_TIMER()
+					end
+				 	Started = true
+				end
+				if Started then
+					local GameTimer = MISC.GET_GAME_TIMER()
+					for k = 1, 10 do
+						if Vehs[k] == nil then
+							local Address = memory.script_local("fm_mission_controller", VehsLocal+k)
+							local NetID = memory.read_int(Address)
+							if NetID ~= 0 then
+								local Handle = 0
+								util.spoof_script("fm_mission_controller", function()
+									Handle = NETWORK.NET_TO_VEH(NetID)
+								end)
+								if Handle ~= 0 then
+									local PathsToSet = Paths[2]
+									local Delay = 1000 * (k-1)
+									if k >= 6 then
+										PathsToSet = Paths[1]
+										Delay = 1000 * (k-6)
+									end
+									Vehs[k] = {Handle = Handle, NetID = NetID, PathsTable = PathsToSet, Index = 1, StartMilis = GameTimer, Delay = Delay, HasPassedDelay = false,
+									InvincibleMilis = 0, Address = Address, IsDead = false}
+								end
+							end
+						end
+					end
+					for k = 1, 10 do
+						if Vehs[k] ~= nil then
+							if ENTITY.DOES_ENTITY_EXIST(Vehs[k].Handle) and not ENTITY.IS_ENTITY_DEAD(Vehs[k].Handle) then
+								if RequestControlOfEntity(Vehs[k].Handle) then
+									NETWORK.NETWORK_SET_ENTITY_CAN_BLEND(Vehs[k].Handle, true)
+									entities.set_can_migrate(Vehs[k].Handle, false)
+									if not Vehs[k].HasPassedDelay then
+										ENTITY.SET_ENTITY_INVINCIBLE(Vehs[k].Handle, true)
+										ENTITY.SET_ENTITY_COMPLETELY_DISABLE_COLLISION(Vehs[k].Handle, false, false)
+									end
+									if not DECORATOR.DECOR_EXIST_ON(Vehs[k].Handle, "RespawnVeh") then
+										local bVar0 = math.random(0, 65535)
+										DECORATOR.DECOR_SET_INT(Vehs[k].Handle, "RespawnVeh", bVar0);
+									end
+								end
+								if Vehs[k].Index > 0 and Vehs[k].Index < #Vehs[k].PathsTable and GameTimer >= Vehs[k].StartMilis+Vehs[k].Delay then
+									if not Vehs[k].HasPassedDelay then
+										Vehs[k].HasPassedDelay = true
+										Vehs[k].Delay = 0
+										Vehs[k].StartMilis = GameTimer
+										Vehs[k].InvincibleMilis = GameTimer
+									end
+									if GameTimer > Vehs[k].InvincibleMilis+5000 then
+										ENTITY.SET_ENTITY_INVINCIBLE(Vehs[k].Handle, false)
+										ENTITY.SET_ENTITY_COLLISION(Vehs[k].Handle, true, false)
+									end
+									local CurrentTime = (GameTimer - Vehs[k].StartMilis)
+									local Frame1, Frame2 = Vehs[k].PathsTable[Vehs[k].Index], Vehs[k].PathsTable[Vehs[k].Index + 1]
+									if UseMilisAdjustLoop then
+										while CurrentTime > (Frame2.CurGameTime - Vehs[k].PathsTable[1].CurGameTime) do
+											Vehs[k].Index = Vehs[k].Index + 1
+											if Vehs[k].Index >= #Vehs[k].PathsTable then
+												Vehs[k].Index = #Vehs[k].PathsTable
+												break
+											else
+												Frame1, Frame2 = Vehs[k].PathsTable[Vehs[k].Index], Vehs[k].PathsTable[Vehs[k].Index + 1]
+											end
+											CurrentTime = (MISC.GET_GAME_TIMER() - Vehs[k].StartMilis)
+										end
+									else
+										if CurrentTime > (Frame2.CurGameTime - Vehs[k].PathsTable[1].CurGameTime) then
+											Vehs[k].Index = Vehs[k].Index + 1
+											if Vehs[k].Index >= #Vehs[k].PathsTable then
+												Vehs[k].Index = #Vehs[k].PathsTable
+											else
+												Frame1, Frame2 = Vehs[k].PathsTable[Vehs[k].Index], Vehs[k].PathsTable[Vehs[k].Index + 1]
+											end
+										end
+									end
+									local Veh = Vehs[k].Handle
+									local Coord = {
+										x = Vehs[k].PathsTable[Vehs[k].Index].x,
+										y = Vehs[k].PathsTable[Vehs[k].Index].y,
+										z = Vehs[k].PathsTable[Vehs[k].Index].z
+									}
+									local Rot = {
+										x = Vehs[k].PathsTable[Vehs[k].Index].RotX,
+										y = Vehs[k].PathsTable[Vehs[k].Index].RotY,
+										z = Vehs[k].PathsTable[Vehs[k].Index].RotZ
+									}
+									local Vel = {
+										x = Vehs[k].PathsTable[Vehs[k].Index].VelX,
+										y = Vehs[k].PathsTable[Vehs[k].Index].VelY,
+										z = Vehs[k].PathsTable[Vehs[k].Index].VelZ
+									}
+									local AngVel = {
+										x = Vehs[k].PathsTable[Vehs[k].Index].AngVelX,
+										y = Vehs[k].PathsTable[Vehs[k].Index].AngVelY,
+										z = Vehs[k].PathsTable[Vehs[k].Index].AngVelZ
+									}
+									--if not ReplayTeleportMode then
+										SetEntitySpeedToCoord(Veh, Coord, 1.0,
+										false, false, false, Vel.x, Vel.y, Vel.z, false, false, nil)
+										RotateEntityToTargetRotation(Veh, Rot, 10.0)
+									--end
+								end
+							else
+								Vehs[k].IsDead = true
+							end
+						end
+					end
+					if GameTimer >= SwitchIDsMilisTeam1+5000 then
+						if CurSwitchIndexTeam1 <= 5 then
+							local Veh1 = Vehs[1]
+							local Veh2 = Vehs[CurSwitchIndexTeam1]
+							if Veh2 ~= nil and Veh1 ~= nil and not Veh2.IsDead then
+								SwitchIDsMilisTeam1 = GameTimer
+								local NetID1 = Veh1.NetID
+								local NetID2 = Veh2.NetID
+								local Addr1 = Veh1.Address
+								local Addr2 = Veh2.Address
+								memory.write_int(Addr1, NetID2)
+								memory.write_int(Addr2, NetID1)
+								Veh1.NetID = NetID2
+								Veh2.NetID = NetID1
+								CurSwitchIndexTeam1 = CurSwitchIndexTeam1 + 1
+							else
+								CurSwitchIndexTeam1 = CurSwitchIndexTeam1 + 1
+							end
+						else
+							CurSwitchIndexTeam1 = 2
+						end
+					end
+					if GameTimer >= SwitchIDsMilisTeam2+5000 then
+						if CurSwitchIndexTeam2 <= 10 then
+							local Veh1 = Vehs[6]
+							local Veh2 = Vehs[CurSwitchIndexTeam2]
+							if Veh2 ~= nil and Veh1 ~= nil and not Veh2.IsDead then
+								SwitchIDsMilisTeam2 = GameTimer
+								local NetID1 = Veh1.NetID
+								local NetID2 = Veh2.NetID
+								local Addr1 = Veh1.Address
+								local Addr2 = Veh2.Address
+								memory.write_int(Addr1, NetID2)
+								memory.write_int(Addr2, NetID1)
+								Veh1.NetID = NetID2
+								Veh2.NetID = NetID1
+								CurSwitchIndexTeam2 = CurSwitchIndexTeam2 + 1
+							else
+								CurSwitchIndexTeam2 = CurSwitchIndexTeam2 + 1
+							end
+						else
+							CurSwitchIndexTeam2 = 2
+						end
+					end
+				end
+			else
+				Started = false
+				Vehs = {}
+			end
+			Wait()
+		end
+	end
+end)
+
+function GetRotationDifference(CurRot, TargetRot)
+	local RotDifference = {
+        x = TargetRot.x - CurRot.x,
+        y = TargetRot.y - CurRot.y,
+        z = TargetRot.z - CurRot.z,
+    }
+    
+    RotDifference.x = (RotDifference.x + 180) % 360 - 180
+    RotDifference.y = (RotDifference.y + 180) % 360 - 180
+    RotDifference.z = (RotDifference.z + 180) % 360 - 180
+	return RotDifference
+end
+
+function QuatInverse(q)
+    return {x = -q.x, y = -q.y, z = -q.z, w = q.w}
+end
+
+function QuatMultiply(q1, q2)
+    return {
+        x = q1.w * q2.x + q1.x * q2.w + q1.y * q2.z - q1.z * q2.y,
+        y = q1.w * q2.y - q1.x * q2.z + q1.y * q2.w + q1.z * q2.x,
+        z = q1.w * q2.z + q1.x * q2.y - q1.y * q2.x + q1.z * q2.w,
+        w = q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z
+    }
+end
+
+function QuatToEuler(q)
+    local ysqr = q.y * q.y
+
+    -- Roll (X)
+    local t0 = 2.0 * (q.w * q.x + q.y * q.z)
+    local t1 = 1.0 - 2.0 * (q.x * q.x + ysqr)
+    local roll = math.atan(t0, t1)
+
+    -- Pitch (Y)
+    local t2 = 2.0 * (q.w * q.y - q.z * q.x)
+    t2 = math.max(-1.0, math.min(1.0, t2))
+    local pitch = math.asin(t2)
+
+    -- Yaw (Z)
+    local t3 = 2.0 * (q.w * q.z + q.x * q.y)
+    local t4 = 1.0 - 2.0 * (ysqr + q.z * q.z)
+    local yaw = math.atan(t3, t4)
+
+    return {x = math.deg(roll), y = math.deg(pitch), z = math.deg(yaw)}
+end
+
+function GetEntityQuaternion(ent)
+	local q_pointer = memory.alloc(8 * 4)
+    ENTITY.GET_ENTITY_QUATERNION(ent, q_pointer, q_pointer + 8, q_pointer + 16, q_pointer + 24)
+    return {
+		x = memory.read_float(q_pointer),
+        y = memory.read_float(q_pointer + 8),
+        z = memory.read_float(q_pointer + 16),
+        w = memory.read_float(q_pointer + 24)}
+end
+
+-------------------------------------------------------------------------------
+-- Produto vetorial: cross(u, v) = (u.y*v.z - u.z*v.y, u.z*v.x - u.x*v.z, u.x*v.y - u.y*v.x)
+-------------------------------------------------------------------------------
+function CrossProduct(a, b)
+    return {
+        x = a.y * b.z - a.z * b.y,
+        y = a.z * b.x - a.x * b.z,
+        z = a.x * b.y - a.y * b.x
+    }
+end
+
+-------------------------------------------------------------------------------
+-- Soma vetorial simples: a + b
+-------------------------------------------------------------------------------
+function VecAdd(a, b)
+    return {
+        x = a.x + b.x,
+        y = a.y + b.y,
+        z = a.z + b.z
+    }
+end
+
+-------------------------------------------------------------------------------
+-- Escala um vetor: a * escalar
+-------------------------------------------------------------------------------
+function VecScale(a, s)
+    return {
+        x = a.x * s,
+        y = a.y * s,
+        z = a.z * s
+    }
+end
+
+-------------------------------------------------------------------------------
+-- Magnitude de um vetor
+-------------------------------------------------------------------------------
+function VecMag(a)
+    return math.sqrt(a.x*a.x + a.y*a.y + a.z*a.z)
+end
+
+-------------------------------------------------------------------------------
+-- Normaliza um vetor
+-------------------------------------------------------------------------------
+function VecNormalize(a)
+    local mag = VecMag(a)
+    if mag > 0.000001 then
+        return { x = a.x / mag, y = a.y / mag, z = a.z / mag }
+    else
+        return { x = 0, y = 0, z = 0 }
+    end
+end
+
+function PredictEntityOffsetCoords(entity, offset, dt, angularVelocity)
+    -- 1) Lê a matriz atual: fwd, right, up, pos
+    local ForwardVector, RightVector, UpVector, PositionVector = v3.new(), v3.new(), v3.new(), v3.new()
+	ENTITY.GET_ENTITY_MATRIX(entity, ForwardVector, RightVector, UpVector, PositionVector)
+    local fwdx, fwdy, fwdz,
+          rightx, righty, rightz,
+          upx, upy, upz,
+          px, py, pz = ForwardVector.x, ForwardVector.y, ForwardVector.z,
+          RightVector.x, RightVector.y, RightVector.z,
+          UpVector.x, UpVector.y, UpVector.z,
+          PositionVector.x, PositionVector.y, PositionVector.z
+
+    local fwd   = { x=fwdx,  y=fwdy,  z=fwdz }
+    local right = { x=rightx,y=righty,z=rightz }
+    local up    = { x=upx,   y=upy,   z=upz  }
+    local pos   = { x=px,    y=py,    z=pz   }
+    
+    -- 2) Velocidade linear da entidade
+    local linVel = ENTITY.GET_ENTITY_VELOCITY(entity)  -- {x,y,z}
+    
+    -- 3) Prediz a posição do pivô no t+dt
+    local predictedPos = {
+        x = pos.x + linVel.x * dt,
+        y = pos.y + linVel.y * dt,
+        z = pos.z + linVel.z * dt
+    }
+    
+    -- 4) Atualiza fwd, right, up baseado na velocidade angular (pequena rotação)
+    --    newVector = oldVector + (omega x oldVector) * dt
+    local w = angularVelocity  -- atalho
+    local function UpdateVec(vec)
+        local crossTerm = CrossProduct(w, vec) -- w x vec
+        local newVec = VecAdd(vec, VecScale(crossTerm, dt))
+        return VecNormalize(newVec)  -- normaliza para evitar distorção
+    end
+    
+    local fwdNext   = UpdateVec(fwd)
+    local rightNext = UpdateVec(right)
+    local upNext    = UpdateVec(up)
+    
+    local offsetPos = {
+        x = predictedPos.x
+            + rightNext.x * offset.x
+            + fwdNext.x   * offset.y
+            + upNext.x    * offset.z,
+        y = predictedPos.y
+            + rightNext.y * offset.x
+            + fwdNext.y   * offset.y
+            + upNext.y    * offset.z,
+        z = predictedPos.z
+            + rightNext.z * offset.x
+            + fwdNext.z   * offset.y
+            + upNext.z    * offset.z
+    }
+    
+    return offsetPos
+end
