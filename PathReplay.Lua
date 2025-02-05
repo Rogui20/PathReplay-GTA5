@@ -472,6 +472,21 @@ menu.action(AdvancedRecordingMenu, "Clear Registered Vehicles", {}, "", function
 	RegisteredVehiclesT = {}
 end)
 
+local FixSwitchSpeedForPlanes = true
+menu.toggle(AdvancedRecordingMenu, "Fix Switch Speed For Planes", {}, "", function(toggle)
+	FixSwitchSpeedForPlanes = toggle
+end, FixSwitchSpeedForPlanes)
+
+local FixSwitchSpeedForHelis = true
+menu.toggle(AdvancedRecordingMenu, "Fix Switch Speed For Helis", {}, "", function(toggle)
+	FixSwitchSpeedForHelis = toggle
+end, FixSwitchSpeedForHelis)
+
+local FixSwitchSpeedForGroundVehs = true
+menu.toggle(AdvancedRecordingMenu, "Fix Switch Speed For Ground Vehs", {}, "", function(toggle)
+	FixSwitchSpeedForGroundVehs = toggle
+end, FixSwitchSpeedForGroundVehs)
+
 local Advanced_StartRecord = false
 local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Recording", {}, "", function(toggle)
 	Advanced_StartRecord = toggle
@@ -493,7 +508,8 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 					ReplayT = {}, Index = 0, RelSpeed = ENTITY.GET_ENTITY_SPEED_VECTOR(k, true), LastSpeed = ENTITY.GET_ENTITY_SPEED(k),
 					IsNotAPlane = VEHICLE.IS_THIS_MODEL_A_BOAT(ModelHash) or VEHICLE.IS_THIS_MODEL_A_JETSKI(ModelHash) or VEHICLE.IS_THIS_MODEL_A_CAR(ModelHash) or
 					VEHICLE.IS_THIS_MODEL_A_BIKE(ModelHash) or VEHICLE.IS_THIS_MODEL_A_BICYCLE(ModelHash) or VEHICLE.IS_THIS_MODEL_A_QUADBIKE(ModelHash) or
-					VEHICLE.IS_THIS_MODEL_AN_AMPHIBIOUS_CAR(ModelHash) or VEHICLE.IS_THIS_MODEL_AN_AMPHIBIOUS_QUADBIKE(ModelHash)
+					VEHICLE.IS_THIS_MODEL_AN_AMPHIBIOUS_CAR(ModelHash) or VEHICLE.IS_THIS_MODEL_AN_AMPHIBIOUS_QUADBIKE(ModelHash),
+					IsAHeli = VEHICLE.IS_THIS_MODEL_A_HELI(ModelHash), IsAPlane = VEHICLE.IS_THIS_MODEL_A_PLANE(ModelHash)
 				}
 				if Veh == k then
 					CurIndex = #RegisteredVehsReplayT
@@ -560,7 +576,17 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 						if CurSpeedVec.y <= LastSpeedVect.y or CurSpeedVec.y <= CurVeh.RelSpeed.y then
 							local CanGiveSpeed = true
 							if CurVeh.IsNotAPlane then
-								if ENTITY.IS_ENTITY_IN_AIR(Veh) then
+								if ENTITY.IS_ENTITY_IN_AIR(Veh) or not FixSwitchSpeedForGroundVehs then
+									CanGiveSpeed = false
+								end
+							end
+							if CurVeh.IsAHeli then
+								if not FixSwitchSpeedForHelis then
+									CanGiveSpeed = false
+								end
+							end
+							if CurVeh.IsAPlane then
+								if not FixSwitchSpeedForPlanes then
 									CanGiveSpeed = false
 								end
 							end
