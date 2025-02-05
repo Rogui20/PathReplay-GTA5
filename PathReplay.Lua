@@ -531,7 +531,7 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 					VEHICLE.IS_THIS_MODEL_A_BIKE(ModelHash) or VEHICLE.IS_THIS_MODEL_A_BICYCLE(ModelHash) or VEHICLE.IS_THIS_MODEL_A_QUADBIKE(ModelHash) or
 					VEHICLE.IS_THIS_MODEL_AN_AMPHIBIOUS_CAR(ModelHash) or VEHICLE.IS_THIS_MODEL_AN_AMPHIBIOUS_QUADBIKE(ModelHash),
 					IsAHeli = VEHICLE.IS_THIS_MODEL_A_HELI(ModelHash), IsAPlane = VEHICLE.IS_THIS_MODEL_A_PLANE(ModelHash),
-					SteerMilis = 0
+					SteerMilis = 0, CanFixSpeed = false
 				}
 				if Veh == k then
 					CurIndex = #RegisteredVehsReplayT
@@ -539,6 +539,7 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 					RegisteredVehsReplayT[CurIndex].StartTime = StartTime
 					RegisteredVehsReplayT[CurIndex].LastMilis = StartTime
 					RegisteredVehsReplayT[CurIndex].MainVehicle = true
+					RegisteredVehsReplayT[CurIndex].CanFixSpeed = true
 					MainVehicleIndex = CurIndex
 					FoundVehicle = true
 				end
@@ -551,6 +552,7 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 				RegisteredVehsReplayT[CurIndex].StartTime = StartTime
 				RegisteredVehsReplayT[CurIndex].LastMilis = StartTime
 				RegisteredVehsReplayT[CurIndex].MainVehicle = true
+				RegisteredVehsReplayT[CurIndex].CanFixSpeed = true
 				MainVehicleIndex = CurIndex
 			end
 		end
@@ -561,7 +563,9 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 		local CreatePeds = true
 		local SwitchTriggered = false
 		local SwitchTick = 0
-		local MaxTick = 100
+		local MaxTick = 10
+		local CorrectSpeedTick = 0
+		local CorrectSpeedMaxTick = 50
 		local LastSpeedVect = v3.new()
 		while Advanced_StartRecord do
 			PlayerPed = PLAYER.PLAYER_PED_ID()
@@ -591,7 +595,7 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 						--VEHICLE.SET_VEHICLE_FORWARD_SPEED_XY(Veh, RelSpeed.x)
 						--ENTITY.APPLY_FORCE_TO_ENTITY_CENTER_OF_MASS(Veh, 1, Vel.x, Vel.y, Vel.z, 0, false, true, true)
 					end
-					if BoostPressed and SwitchTick < MaxTick and SwitchTriggered then
+					if BoostPressed and SwitchTick < MaxTick and SwitchTriggered and CurVeh.CanFixSpeed then
 						--local RelSpeed = CurVeh.RelSpeed
 						local CurSpeed = ENTITY.GET_ENTITY_SPEED(Veh)
 						local CurSpeedVec = ENTITY.GET_ENTITY_SPEED_VECTOR(Veh, true)
@@ -614,13 +618,21 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 							end
 							if CanGiveSpeed then
 								VEHICLE.SET_VEHICLE_FORWARD_SPEED(Veh, CurSpeed + 1.0)
+								SwitchTick = SwitchTick + 1
+							end
+						else
+							CorrectSpeedTick = CorrectSpeedTick + 1
+							if CorrectSpeedTick > CorrectSpeedMaxTick then
+								CorrectSpeedTick = 0
+								SwitchTriggered = false
+								SwitchTick = 0
 							end
 						end
 					else
 						--SwitchTriggered = false
 					end
 					if SwitchTick < MaxTick then
-						SwitchTick = SwitchTick + 1
+						--SwitchTick = SwitchTick + 1
 					end
 					TASK.CLEAR_VEHICLE_CRASH_TASK(Veh)
 					VEHICLE.SET_DISABLE_AUTOMATIC_CRASH_TASK(Veh, false)
@@ -663,6 +675,7 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 					directx.draw_text(0.5, 0.275, "AdjustedGameTimer "..AdjustedGameTimer, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
 					if is_bit_set(CurVeh.Bits, 2) then
 						if #RegisteredVehsReplayT > 1 then
+							CurVeh.CanFixSpeed = true
 							CurVeh.RelSpeed = ENTITY.GET_ENTITY_SPEED_VECTOR(Veh, true)
 							if CurVeh.MainVehicle then
 								LastRecordedTime = GameTimer - StartTime
@@ -706,6 +719,7 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 							StartTime = MISC.GET_GAME_TIMER()
 							SwitchTriggered = true
 							SwitchTick = 0
+							CorrectSpeedTick = 0
 						end
 					end
 				else
