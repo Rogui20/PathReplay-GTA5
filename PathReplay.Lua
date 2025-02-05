@@ -161,7 +161,14 @@ local StartRecordingPTR = menu.toggle(SoloRecordingMenu, "Start Recording", {}, 
 				local Vel = ENTITY.GET_ENTITY_VELOCITY(Veh)
 				local AngVel = ENTITY.GET_ENTITY_ROTATION_VELOCITY(Veh)
 				local VehModel = ENTITY.GET_ENTITY_MODEL(Veh)
-				RecordT[#RecordT+1] = ToTxt(Pos, Rot, Vel, AngVel, GameTimer, VehModel)
+				local BoneID = ENTITY.GET_ENTITY_BONE_INDEX_BY_NAME(Veh, "steeringwheel")
+				local Steering = 0.0
+				if BoneID ~= 0 then
+					local SteeringRot = ENTITY.GET_ENTITY_BONE_OBJECT_ROTATION(Veh, BoneID)
+					SteeringRot:normalise()
+					Steering = -SteeringRot.y
+				end
+				RecordT[#RecordT+1] = ToTxt(Pos, Rot, Vel, AngVel, GameTimer, VehModel, Steering)
 				if #RecordT >= 1000 then
 					local BigText = table.concat(RecordT)
 					WriteFile(PathDirSaveds..FileNameForSave..".txt", BigText)
@@ -249,7 +256,8 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 				StartTimer = 0,
 				PedHandle = 0,
 				PedBlip = 0,
-				HasSetStartTimer = false
+				HasSetStartTimer = false,
+				SteerMilis = 0
 			}
 		end
 		for k = 1, #ReplayVehsT do
@@ -392,6 +400,19 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 							y = ReplayVehsT[k].Paths[ReplayVehsT[k].Index].AngVelY,
 							z = ReplayVehsT[k].Paths[ReplayVehsT[k].Index].AngVelZ
 						}
+						--VEHICLE.SET_VEHICLE_IS_RACING(Veh, true)
+						local Steering = ReplayVehsT[k].Paths[ReplayVehsT[k].Index].Steering
+						--VEHICLE.SET_VEHICLE_STEER_BIAS(Veh, Steering)
+						if ReplayVehsT[k].PedHandle ~= 0 and ENTITY.DOES_ENTITY_EXIST(ReplayVehsT[k].PedHandle) then
+							PED.SET_DRIVER_RACING_MODIFIER(ReplayVehsT[k].PedHandle, 1.0)
+							if GameTimer > ReplayVehsT[k].SteerMilis+1000 then
+								ReplayVehsT[k].SteerMilis = GameTimer
+								local Offset = ENTITY.GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS(Veh, -Steering * 3.0, 0.0, 0.0)
+								TASK.TASK_VEHICLE_DRIVE_TO_COORD(ReplayVehsT[k].PedHandle, Veh, Offset.x, Offset.y, Offset.z, 180.0, 1, ENTITY.GET_ENTITY_MODEL(Veh), 1, 0.01, 40000.0)
+							else
+								ReplayVehsT[k].SteerMilis = 0
+							end
+						end
 						if not ReplayTeleportMode then
 							SetEntitySpeedToCoord(Veh, Coord, 1.0,
 							false, false, false, Vel.x, Vel.y, Vel.z, false, false, nil)
@@ -509,7 +530,8 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 					IsNotAPlane = VEHICLE.IS_THIS_MODEL_A_BOAT(ModelHash) or VEHICLE.IS_THIS_MODEL_A_JETSKI(ModelHash) or VEHICLE.IS_THIS_MODEL_A_CAR(ModelHash) or
 					VEHICLE.IS_THIS_MODEL_A_BIKE(ModelHash) or VEHICLE.IS_THIS_MODEL_A_BICYCLE(ModelHash) or VEHICLE.IS_THIS_MODEL_A_QUADBIKE(ModelHash) or
 					VEHICLE.IS_THIS_MODEL_AN_AMPHIBIOUS_CAR(ModelHash) or VEHICLE.IS_THIS_MODEL_AN_AMPHIBIOUS_QUADBIKE(ModelHash),
-					IsAHeli = VEHICLE.IS_THIS_MODEL_A_HELI(ModelHash), IsAPlane = VEHICLE.IS_THIS_MODEL_A_PLANE(ModelHash)
+					IsAHeli = VEHICLE.IS_THIS_MODEL_A_HELI(ModelHash), IsAPlane = VEHICLE.IS_THIS_MODEL_A_PLANE(ModelHash),
+					SteerMilis = 0
 				}
 				if Veh == k then
 					CurIndex = #RegisteredVehsReplayT
@@ -611,8 +633,15 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 					local Vel = ENTITY.GET_ENTITY_VELOCITY(Veh)
 					local AngVel = ENTITY.GET_ENTITY_ROTATION_VELOCITY(Veh)
 					local VehModel = ENTITY.GET_ENTITY_MODEL(Veh)
+					local BoneID = ENTITY.GET_ENTITY_BONE_INDEX_BY_NAME(Veh, "steeringwheel")
+					local Steering = 0.0
+					if BoneID ~= 0 then
+						local SteeringRot = ENTITY.GET_ENTITY_BONE_OBJECT_ROTATION(Veh, BoneID)
+						SteeringRot:normalise()
+						Steering = -SteeringRot.y
+					end
 					local AdjustedGameTimer = (GameTimer - StartTime) + TimeContinue
-					RegisteredVehsReplayT[CurIndex].RecordT[#RegisteredVehsReplayT[CurIndex].RecordT+1] = ToTxt(Pos, Rot, Vel, AngVel, AdjustedGameTimer, VehModel)
+					RegisteredVehsReplayT[CurIndex].RecordT[#RegisteredVehsReplayT[CurIndex].RecordT+1] = ToTxt(Pos, Rot, Vel, AngVel, AdjustedGameTimer, VehModel, Steering)
 					if #RegisteredVehsReplayT[CurIndex].RecordT >= 1000 then
 						local BigText = table.concat(RegisteredVehsReplayT[CurIndex].RecordT)
 						WriteFile(PathDirSaveds..RegisteredVehsReplayT[CurIndex].FileName..".txt", BigText)
@@ -623,7 +652,8 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 						Rot = Rot,
 						Vel = Vel,
 						AngVel = AngVel,
-						CurGameTime = GameTimer
+						CurGameTime = GameTimer,
+						Steering = Steering
 					}
 					if SwitchPressed and CurVeh.MainVehicle or GameTimer >= LastTime+LastRecordedTime and not CurVeh.MainVehicle then
 						if not is_bit_set(CurVeh.Bits, 2) then
@@ -662,7 +692,7 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 								ENTITY.SET_ENTITY_COORDS(PlayerPed, Coords2.x, Coords2.y, Coords2.z)
 								ENTITY.SET_ENTITY_COORDS(NextVeh.Ped, Coords1.x, Coords1.y, Coords1.z)
 								PED.SET_PED_INTO_VEHICLE(NextVeh.Ped, CurVeh.Veh, -1)
-								TASK.TASK_VEHICLE_DRIVE_TO_COORD(NextVeh.Ped, Veh, 0.0, 0.0, 500.0, 360.0, 1, ENTITY.GET_ENTITY_MODEL(Veh), 1, 0.1, 40000.0)
+								--TASK.TASK_VEHICLE_DRIVE_TO_COORD(NextVeh.Ped, Veh, 0.0, 0.0, 500.0, 360.0, 1, ENTITY.GET_ENTITY_MODEL(Veh), 1, 0.1, 40000.0)
 								local OldPed = CurVeh.Ped
 								CurVeh.Ped = NextVeh.Ped
 								NextVeh.Ped = OldPed
@@ -776,6 +806,18 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 									y = RegisteredVehsReplayT[k].ReplayT[RegisteredVehsReplayT[k].Index].AngVel.y,
 									z = RegisteredVehsReplayT[k].ReplayT[RegisteredVehsReplayT[k].Index].AngVel.z
 								}
+								local Steering = RegisteredVehsReplayT[k].ReplayT[RegisteredVehsReplayT[k].Index].Steering
+								--VEHICLE.SET_VEHICLE_STEER_BIAS(Veh, Steering)
+								if RegisteredVehsReplayT[k].Ped ~= 0 and ENTITY.DOES_ENTITY_EXIST(RegisteredVehsReplayT[k].Ped) then
+									PED.SET_DRIVER_RACING_MODIFIER(RegisteredVehsReplayT[k].Ped, 1.0)
+									if GameTimer > RegisteredVehsReplayT[k].SteerMilis+1000 then
+										RegisteredVehsReplayT[k].SteerMilis = GameTimer
+										local Offset = ENTITY.GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS(Vehicle, -Steering * 3.0, 0.0, 0.0)
+										TASK.TASK_VEHICLE_DRIVE_TO_COORD(RegisteredVehsReplayT[k].Ped, Vehicle, Offset.x, Offset.y, Offset.z, 180.0, 1, ENTITY.GET_ENTITY_MODEL(Vehicle), 1, 0.01, 40000.0)
+									else
+										RegisteredVehsReplayT[k].SteerMilis = 0
+									end
+								end
 								SetEntitySpeedToCoord(Vehicle, Coord, 1.0,
 								false, false, false, Vel.x, Vel.y, Vel.z, false, false, nil)
 								RotateEntityToTargetRotation(Vehicle, Rot, 10.0)
@@ -959,12 +1001,12 @@ function GetVectorsTable(FileName, DelayLoad, GetOnlyFirstData)
 	return VectorTable
 end
 
-function ToTxt(Pos, Rot, Vel, AngVel, CurGameTimer, VehModel)
+function ToTxt(Pos, Rot, Vel, AngVel, CurGameTimer, VehModel, Steering)
     return string.format("%0.3f", Pos.x).." "..string.format("%0.3f", Pos.y).." "..string.format("%0.3f", Pos.z)..
     " "..string.format("%0.3f", Rot.x).." "..string.format("%0.3f", Rot.y).." "..string.format("%0.3f", Rot.z)..
     " "..string.format("%0.3f", Vel.x).." "..string.format("%0.3f", Vel.y).." "..string.format("%0.3f", Vel.z)..
     " "..string.format("%0.3f", AngVel.x).." "..string.format("%0.3f", AngVel.y).." "..string.format("%0.3f", AngVel.z)..
-    " "..CurGameTimer.." "..VehModel.."\n"
+    " "..CurGameTimer.." "..VehModel.." "..Steering.."\n"
 end
 
 function TimerCount(TimerT)
@@ -1245,7 +1287,14 @@ MultiplayerRecordingPTR = menu.toggle(MultiplayerRecording, "Start Multiplayer R
 						local Vel = ENTITY.GET_ENTITY_VELOCITY(Veh)
 						local AngVel = ENTITY.GET_ENTITY_ROTATION_VELOCITY(Veh)
 						local VehModel = ENTITY.GET_ENTITY_MODEL(Veh)
-						PlayersT[k].Records[#PlayersT[k].Records+1] = ToTxt(Pos, Rot, Vel, AngVel, GameTimer, VehModel)
+						local BoneID = ENTITY.GET_ENTITY_BONE_INDEX_BY_NAME(Veh, "steeringwheel")
+						local Steering = 0.0
+						if BoneID ~= 0 then
+							local SteeringRot = ENTITY.GET_ENTITY_BONE_OBJECT_ROTATION(Veh, BoneID)
+							SteeringRot:normalise()
+							Steering = -SteeringRot.y
+						end
+						PlayersT[k].Records[#PlayersT[k].Records+1] = ToTxt(Pos, Rot, Vel, AngVel, GameTimer, VehModel, Steering)
 						if #PlayersT[k].Records >= 1000 then
 							local BigText = table.concat(PlayersT[k].Records)
 							WriteFile(Dir..k..".txt", BigText)
@@ -2929,7 +2978,7 @@ function GetVectorsTable(fileName, delayLoad, getOnlyFirstData)
             RotX = numbers[4], RotY = numbers[5], RotZ = numbers[6],
             VelX = numbers[7], VelY = numbers[8], VelZ = numbers[9],
             AngVelX = numbers[10], AngVelY = numbers[11], AngVelZ = numbers[12],
-            CurGameTime = numbers[13], ModelHash = numbers[14]
+            CurGameTime = numbers[13], ModelHash = numbers[14], Steering = numbers[15] or 0.0
         }
 
         if delayLoad then
