@@ -485,11 +485,15 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 		local StartTime = MISC.GET_GAME_TIMER()
 		for k, Value in pairs(RegisteredVehiclesT) do
 			if ENTITY.DOES_ENTITY_EXIST(k) then
+				local ModelHash = ENTITY.GET_ENTITY_MODEL(k)
 				RegisteredVehsReplayT[#RegisteredVehsReplayT+1] = {
 					Veh = k, RecordT = {}, MainVehicle = false, Ped = 0, PedBlip = 0,
 					Pos = Value.Pos, Rot = Value.Rot, Vel = Value.Vel,
 					AngVel = Value.AngVel, Bits = 0, FileName = Advanced_FileNameForSave.."_"..#RegisteredVehsReplayT+1,
-					ReplayT = {}, Index = 0
+					ReplayT = {}, Index = 0, RelSpeed = ENTITY.GET_ENTITY_SPEED_VECTOR(k, true), LastSpeed = ENTITY.GET_ENTITY_SPEED(k),
+					IsNotAPlane = VEHICLE.IS_THIS_MODEL_A_BOAT(ModelHash) or VEHICLE.IS_THIS_MODEL_A_JETSKI(ModelHash) or VEHICLE.IS_THIS_MODEL_A_CAR(ModelHash) or
+					VEHICLE.IS_THIS_MODEL_A_BIKE(ModelHash) or VEHICLE.IS_THIS_MODEL_A_BICYCLE(ModelHash) or VEHICLE.IS_THIS_MODEL_A_QUADBIKE(ModelHash) or
+					VEHICLE.IS_THIS_MODEL_AN_AMPHIBIOUS_CAR(ModelHash) or VEHICLE.IS_THIS_MODEL_AN_AMPHIBIOUS_QUADBIKE(ModelHash)
 				}
 				if Veh == k then
 					CurIndex = #RegisteredVehsReplayT
@@ -516,12 +520,18 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 		local TimeContinue = 0
 		local LastRecordedTime = 0
 		local LastTime = 0
+		local CreatePeds = true
+		local SwitchTriggered = false
+		local SwitchTick = 0
+		local MaxTick = 100
+		local LastSpeedVect = v3.new()
 		while Advanced_StartRecord do
 			PlayerPed = PLAYER.PLAYER_PED_ID()
 			local CurVeh = RegisteredVehsReplayT[CurIndex]
 			local GameTimer = MISC.GET_GAME_TIMER()
 			PAD.DISABLE_CONTROL_ACTION(0, 75, true)
 			local SwitchPressed = PAD.IS_DISABLED_CONTROL_JUST_PRESSED(0, 75)
+			local BoostPressed = PAD.IS_CONTROL_PRESSED(0, 71)
 			if CurVeh ~= nil then
 				Veh = CurVeh.Veh
 				if ENTITY.DOES_ENTITY_EXIST(Veh) then
@@ -532,17 +542,44 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 						local Rot = CurVeh.Rot
 						local Vel = CurVeh.Vel
 						local AngVel = CurVeh.AngVel
+						local RelSpeed = CurVeh.RelSpeed
 						ENTITY.SET_ENTITY_COORDS_NO_OFFSET(Veh, Pos.x, Pos.y, Pos.z, false, false, true)
-						VEHICLE.SET_VEHICLE_FORWARD_SPEED(Veh, 300.0)
+						--VEHICLE.SET_VEHICLE_FORWARD_SPEED(Veh, 300.0)
 						ENTITY.SET_ENTITY_ROTATION(Veh, Rot.x, Rot.y, Rot.z, 5)
 						ENTITY.SET_ENTITY_VELOCITY(Veh, Vel.x, Vel.y, Vel.z)
+						--ENTITY.SET_ENTITY_VELOCITY(Veh, 0.0, 0.0, 0.0)
 						ENTITY.SET_ENTITY_ANGULAR_VELOCITY(Veh, AngVel.x, AngVel.y, AngVel.z)
+						--VEHICLE.SET_VEHICLE_FORWARD_SPEED(Veh, RelSpeed.y)
+						--VEHICLE.SET_VEHICLE_FORWARD_SPEED_XY(Veh, RelSpeed.x)
+						--ENTITY.APPLY_FORCE_TO_ENTITY_CENTER_OF_MASS(Veh, 1, Vel.x, Vel.y, Vel.z, 0, false, true, true)
+					end
+					if BoostPressed and SwitchTick < MaxTick and SwitchTriggered then
+						--local RelSpeed = CurVeh.RelSpeed
+						local CurSpeed = ENTITY.GET_ENTITY_SPEED(Veh)
+						local CurSpeedVec = ENTITY.GET_ENTITY_SPEED_VECTOR(Veh, true)
+						if CurSpeedVec.y <= LastSpeedVect.y or CurSpeedVec.y <= CurVeh.RelSpeed.y then
+							local CanGiveSpeed = true
+							if CurVeh.IsNotAPlane then
+								if ENTITY.IS_ENTITY_IN_AIR(Veh) then
+									CanGiveSpeed = false
+								end
+							end
+							if CanGiveSpeed then
+								VEHICLE.SET_VEHICLE_FORWARD_SPEED(Veh, CurSpeed + 1.0)
+							end
+						end
+					else
+						--SwitchTriggered = false
+					end
+					if SwitchTick < MaxTick then
+						SwitchTick = SwitchTick + 1
 					end
 					TASK.CLEAR_VEHICLE_CRASH_TASK(Veh)
 					VEHICLE.SET_DISABLE_AUTOMATIC_CRASH_TASK(Veh, false)
 					VEHICLE.SET_DIP_STRAIGHT_DOWN_WHEN_CRASHING_PLANE(Veh, false)
 					VEHICLE.SET_VEHICLE_ENGINE_ON(Veh, true, true, false)
 					VEHICLE.SET_VEHICLE_KEEP_ENGINE_ON_WHEN_ABANDONED(Veh, true)
+					--VEHICLE.SET_ROCKET_BOOST_ACTIVE(Veh, true)
 					local Pos = ENTITY.GET_ENTITY_COORDS(Veh)
 					local Rot = ENTITY.GET_ENTITY_ROTATION(Veh, 5)
 					local Vel = ENTITY.GET_ENTITY_VELOCITY(Veh)
@@ -570,14 +607,17 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 					directx.draw_text(0.5, 0.275, "AdjustedGameTimer "..AdjustedGameTimer, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
 					if is_bit_set(CurVeh.Bits, 2) then
 						if #RegisteredVehsReplayT > 1 then
+							CurVeh.RelSpeed = ENTITY.GET_ENTITY_SPEED_VECTOR(Veh, true)
 							if CurVeh.MainVehicle then
 								LastRecordedTime = GameTimer - StartTime
+								LastSpeedVect = CurVeh.RelSpeed
 							end
 							LastTime = GameTimer
 							CurVeh.Pos = Pos
 							CurVeh.Rot = Rot
 							CurVeh.Vel = Vel
 							CurVeh.AngVel = AngVel
+							CurVeh.LastSpeed = ENTITY.GET_ENTITY_SPEED(Veh)
 							CurIndex = CurIndex + 1
 							if CurIndex > #RegisteredVehsReplayT then
 								CurIndex = 1
@@ -596,21 +636,20 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 								ENTITY.SET_ENTITY_COORDS(PlayerPed, Coords2.x, Coords2.y, Coords2.z)
 								ENTITY.SET_ENTITY_COORDS(NextVeh.Ped, Coords1.x, Coords1.y, Coords1.z)
 								PED.SET_PED_INTO_VEHICLE(NextVeh.Ped, CurVeh.Veh, -1)
-								--TASK.TASK_LEAVE_VEHICLE(PlayerPed, Veh, 16)
-								--TASK.TASK_LEAVE_VEHICLE(NextVeh.Ped, NextVeh.Veh, 16)
-								--TASK.TASK_ENTER_VEHICLE(NextVeh.Ped, Veh, 0, -1, 3.0, 3, 0, 0)
+								TASK.TASK_VEHICLE_DRIVE_TO_COORD(NextVeh.Ped, Veh, 0.0, 0.0, 500.0, 360.0, 1, ENTITY.GET_ENTITY_MODEL(Veh), 1, 0.1, 40000.0)
 								local OldPed = CurVeh.Ped
 								CurVeh.Ped = NextVeh.Ped
 								NextVeh.Ped = OldPed
 							end
 							PED.SET_PED_INTO_VEHICLE(PlayerPed, NextVeh.Veh, -1)
-							--TASK.TASK_ENTER_VEHICLE(PlayerPed, NextVeh.Veh, 0, -1, 3.0, 3, 0, 0)
 							NextVeh.ReplayT = {}
 							GlobalStartTime = GameTimer
 							for k = 1, #RegisteredVehsReplayT do
 								RegisteredVehsReplayT[k].Index = 0
 							end
 							StartTime = MISC.GET_GAME_TIMER()
+							SwitchTriggered = true
+							SwitchTick = 0
 						end
 					end
 				else
@@ -625,22 +664,29 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 				if k ~= CurIndex then
 					local Vehicle = RegisteredVehsReplayT[k].Veh
 					if ENTITY.DOES_ENTITY_EXIST(Vehicle) then
-						if not RegisteredVehsReplayT[k].MainVehicle then
-							if RegisteredVehsReplayT[k].Ped == 0 then
-								if RequestModelFunc(joaat(PedModel)) then
-									RegisteredVehsReplayT[k].Ped = PED.CREATE_PED_INSIDE_VEHICLE(Vehicle, 28, joaat(PedModel), -1, true, true)
-									if RegisteredVehsReplayT[k].Ped ~= 0 then
-										STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(joaat(PedModel))
-										ENTITY.SET_ENTITY_AS_MISSION_ENTITY(RegisteredVehsReplayT[k].Ped, false, true)
-										entities.set_can_migrate(RegisteredVehsReplayT[k].Ped, false)
-										ENTITY.SET_ENTITY_INVINCIBLE(RegisteredVehsReplayT[k].Ped, true)
-										NETWORK.NETWORK_SET_ENTITY_CAN_BLEND(RegisteredVehsReplayT[k].Ped, true)
-										RegisteredVehsReplayT[k].PedBlip = HUD.ADD_BLIP_FOR_ENTITY(RegisteredVehsReplayT[k].Ped)
-										HUD.SET_BLIP_COLOUR(RegisteredVehsReplayT[k].PedBlip, 1)
-										HUD.SHOW_HEADING_INDICATOR_ON_BLIP(RegisteredVehsReplayT[k].PedBlip, true)
-										PED.SET_PED_COMBAT_ATTRIBUTES(RegisteredVehsReplayT[k].Ped, 3, false)
-									else
-										STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(joaat(PedModel))
+						TASK.CLEAR_VEHICLE_CRASH_TASK(Vehicle)
+						VEHICLE.SET_DISABLE_AUTOMATIC_CRASH_TASK(Vehicle, false)
+						VEHICLE.SET_DIP_STRAIGHT_DOWN_WHEN_CRASHING_PLANE(Vehicle, false)
+						VEHICLE.SET_VEHICLE_ENGINE_ON(Vehicle, true, true, false)
+						VEHICLE.SET_VEHICLE_KEEP_ENGINE_ON_WHEN_ABANDONED(Vehicle, true)
+						if CreatePeds then
+							if not RegisteredVehsReplayT[k].MainVehicle then
+								if RegisteredVehsReplayT[k].Ped == 0 then
+									if RequestModelFunc(joaat(PedModel)) then
+										RegisteredVehsReplayT[k].Ped = PED.CREATE_PED_INSIDE_VEHICLE(Vehicle, 28, joaat(PedModel), -1, true, true)
+										if RegisteredVehsReplayT[k].Ped ~= 0 then
+											STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(joaat(PedModel))
+											ENTITY.SET_ENTITY_AS_MISSION_ENTITY(RegisteredVehsReplayT[k].Ped, false, true)
+											entities.set_can_migrate(RegisteredVehsReplayT[k].Ped, false)
+											ENTITY.SET_ENTITY_INVINCIBLE(RegisteredVehsReplayT[k].Ped, true)
+											NETWORK.NETWORK_SET_ENTITY_CAN_BLEND(RegisteredVehsReplayT[k].Ped, true)
+											RegisteredVehsReplayT[k].PedBlip = HUD.ADD_BLIP_FOR_ENTITY(RegisteredVehsReplayT[k].Ped)
+											HUD.SET_BLIP_COLOUR(RegisteredVehsReplayT[k].PedBlip, 1)
+											HUD.SHOW_HEADING_INDICATOR_ON_BLIP(RegisteredVehsReplayT[k].PedBlip, true)
+											PED.SET_PED_COMBAT_ATTRIBUTES(RegisteredVehsReplayT[k].Ped, 3, false)
+										else
+											STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(joaat(PedModel))
+										end
 									end
 								end
 							end
