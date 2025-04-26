@@ -9,6 +9,8 @@ local PathDirSaveds = filesystem.scripts_dir().."Paths\\"
 local LoadedFileName = FileNameForSave
 
 filesystem.mkdirs(filesystem.scripts_dir().."Paths")
+filesystem.mkdirs(PathDirSaveds.."EditedRecords")
+filesystem.mkdirs(PathDirSaveds.."ContinuedRecords")
 
 local GlobalSpd = 15.65
 local SpeedMultiplier = 1.0545
@@ -59,6 +61,7 @@ end
 
 local ReplaysToLoad = {}
 local MultiplayerRecordingPTR = nil
+local Advanced_StartRecordingPTR = nil
 
 local SoloRecordingMenu = menu.list(menu.my_root(), "Solo Recording", {}, "Record solo tools.")
 
@@ -139,11 +142,23 @@ end, FileNameForSave)
 
 CreateMenuItemsForFileList()
 
+function ClearFile(FileName)
+    local File = io.open(FileName, "w")  -- Abrir em modo de escrita ("w") para limpar
+    if File then
+        File:close()  -- Fechar o arquivo para garantir que foi zerado
+    end
+end
+
 local AiHateRel = "rgFM_AiHate"
 local AiLikeRel = "rgFM_AiLike"
 local AiLikeHateAiHateRel = "rgFM_AiLike_HateAiHate"
 local AiHateAiHateRel = "rgFM_HateAiHate"
 local AiHateEveryone = "rgFM_HateEveryOne"
+
+local EmptyRecord = false
+local EmptyRecordPTR = menu.toggle(SoloRecordingMenu, "First Clear Recording File", {}, "", function(toggle)
+	EmptyRecord = toggle
+end, EmptyRecord)
 
 local RecordT = {}
 
@@ -151,6 +166,10 @@ local StartRecord = false
 local StartRecordingPTR = menu.toggle(SoloRecordingMenu, "Start Recording", {}, "", function(toggle)
 	StartRecord = toggle
 	if StartRecord then
+		if EmptyRecord then
+			ClearFile(PathDirSaveds..FileNameForSave..".txt")
+			--menu.set_value(EmptyRecordPTR, false)
+		end
 		while StartRecord do
 			local PlayerPed = PLAYER.PLAYER_PED_ID()
 			local Veh = PED.GET_VEHICLE_PED_IS_IN(PlayerPed, true)
@@ -227,7 +246,7 @@ menu.text_input(SoloRecordingMenu, "Set Ped Model", {"setpedmodel"}, "Ped model 
 	end
 end)
 
-local CreatePedToReplay = false
+local CreatePedToReplay = true
 menu.toggle(SoloRecordingMenu, "Create Ped To Replay Vehicles", {}, "", function(toggle)
 	CreatePedToReplay = toggle
 end, CreatePedToReplay)
@@ -237,10 +256,11 @@ menu.toggle(SoloRecordingMenu, "Replay Teleport Mode", {}, "Use teleportation in
 	ReplayTeleportMode = toggle
 end, ReplayTeleportMode)
 
-
+local WaitBeforeStartReplay = false
 local UseMilisAdjustLoop = true
 local Multiplayer_StartedFromScript = false
 local StartedFromScript = false
+local Advanced_StartedFromScript = false
 local ReplayVehsT = {}
 local StartReplay = false
 local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected Replay", {}, "", function(toggle)
@@ -257,13 +277,21 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 				PedHandle = 0,
 				PedBlip = 0,
 				HasSetStartTimer = false,
-				SteerMilis = 0
+				SteerMilis = 0,
+				IsCargoPlane = false
 			}
 		end
 		for k = 1, #ReplayVehsT do
 			if ReplayVehsT[k].Paths ~= nil and ReplayVehsT[k].Paths[1] ~= nil then
+				if not UseStoredVehicleModel then
+					ReplayVehsT[k].Paths[1].ModelHash = joaat(Model)
+				end
 				ReplayVehsT[k].ModelHash = ReplayVehsT[k].Paths[1].ModelHash or joaat(Model)
 				if ReplayVehsT[k].VehHandle == 0 then
+					if not STREAMING.IS_MODEL_VALID(ReplayVehsT[k].ModelHash) then
+						ReplayVehsT[k].ModelHash = joaat(Model)
+					end
+					ReplayVehsT[k].IsCargoPlane = ReplayVehsT[k].ModelHash == joaat("cargoplane") or ReplayVehsT[k].ModelHash == joaat("cargoplane2")
 					STREAMING.REQUEST_MODEL(ReplayVehsT[k].ModelHash)
 					while not STREAMING.HAS_MODEL_LOADED(ReplayVehsT[k].ModelHash) do
 						Wait()
@@ -300,11 +328,29 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 								end
 							end
 						end
+						ENTITY.FREEZE_ENTITY_POSITION(ReplayVehsT[k].VehHandle, true)
+						ENTITY.SET_ENTITY_COORDS(ReplayVehsT[k].VehHandle, ReplayVehsT[k].Paths[1].x, ReplayVehsT[k].Paths[1].y, ReplayVehsT[k].Paths[1].z)
+						ENTITY.SET_ENTITY_ROTATION(ReplayVehsT[k].VehHandle, ReplayVehsT[k].Paths[1].RotX, ReplayVehsT[k].Paths[1].RotY, ReplayVehsT[k].Paths[1].RotZ, 5)
 					else
 						STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(ReplayVehsT[k].ModelHash)
 					end
 				end
 			end
+		end
+		local LastEnt = 0
+		local WaitWasEnabled = false
+		while WaitBeforeStartReplay do
+			WaitWasEnabled = true
+			--if LastEnt == 0 then
+				local PVeh = PED.GET_VEHICLE_PED_IS_IN(PLAYER.PLAYER_PED_ID(), true)
+				if PVeh ~= 0 then
+					local NewLastEnt = ENTITY._GET_LAST_ENTITY_HIT_BY_ENTITY(PVeh)
+					if NewLastEnt ~= 0 then
+						LastEnt = NewLastEnt
+					end
+				end
+			--end
+			Wait()
 		end
 		local StartTimer = MISC.GET_GAME_TIMER()
 		while StartReplay do
@@ -318,9 +364,14 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 				Multiplayer_StartedFromScript = false
 				menu.set_value(MultiplayerRecordingPTR, true)
 			end
+			if Advanced_StartedFromScript then
+				Advanced_StartedFromScript = false
+				menu.set_value(Advanced_StartRecordingPTR, true)
+			end
 			for k = 1, #ReplayVehsT do
 				local Veh = ReplayVehsT[k].VehHandle
 				if Veh ~= 0 and ENTITY.DOES_ENTITY_EXIST(Veh) then
+					ENTITY.FREEZE_ENTITY_POSITION(ReplayVehsT[k].VehHandle, false)
 					if ReplayVehsT[k].Index == 0 then
 						ReplayVehsT[k].Index = FrameStartIndex
 						local PathsData = ReplayVehsT[k].Paths[FrameStartIndex] or ReplayVehsT[k].Paths[1]
@@ -400,6 +451,13 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 							y = ReplayVehsT[k].Paths[ReplayVehsT[k].Index].AngVelY,
 							z = ReplayVehsT[k].Paths[ReplayVehsT[k].Index].AngVelZ
 						}
+						if ReplayVehsT[k].IsCargoPlane then
+							VEHICLE.SET_DOOR_ALLOWED_TO_BE_BROKEN_OFF(Veh, 2, false)
+							VEHICLE.SET_VEHICLE_DOOR_CONTROL(Veh, 2, 180.0, 180.0)
+							if not VEHICLE.IS_VEHICLE_DOOR_DAMAGED(Veh, 4) then
+								VEHICLE.SET_VEHICLE_DOOR_BROKEN(Veh, 4, false)
+							end
+						end
 						--VEHICLE.SET_VEHICLE_IS_RACING(Veh, true)
 						local Steering = ReplayVehsT[k].Paths[ReplayVehsT[k].Index].Steering
 						--VEHICLE.SET_VEHICLE_STEER_BIAS(Veh, Steering)
@@ -430,6 +488,19 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 					end
 				end
 			end
+			if WaitWasEnabled then
+				local PVeh = PED.GET_VEHICLE_PED_IS_IN(PLAYER.PLAYER_PED_ID(), true)
+				if PVeh ~= 0 then
+					if LastEnt == 0 then
+						LastEnt = ENTITY._GET_LAST_ENTITY_HIT_BY_ENTITY(PVeh)
+					end
+					if LastEnt ~= 0 then
+						local CurVel = ENTITY.GET_ENTITY_VELOCITY(LastEnt)
+						ENTITY.SET_ENTITY_VELOCITY(PVeh, CurVel.x, CurVel.y, CurVel.z)
+						WaitWasEnabled = false
+					end
+				end
+			end
 			Wait()
 		end
 	else
@@ -451,9 +522,18 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 	end
 end)
 
+menu.toggle(SoloRecordingMenu, "Wait Before Start Replay", {}, "", function(toggle)
+	WaitBeforeStartReplay = toggle
+end, WaitBeforeStartReplay)
+
 menu.action(SoloRecordingMenu, "Load Replays And Start Recording", {}, "If you want to combine replays, this is useful.", function(toggle)
 	StartedFromScript = true
 	menu.set_value(StartSelectedReplaysPTR, true)
+end)
+
+menu.action(SoloRecordingMenu, "Stop Replay And Recording", {}, "", function(toggle)
+	menu.set_value(StartRecordingPTR, false)
+	menu.set_value(StartSelectedReplaysPTR, false)
 end)
 
 local AdvancedRecordingMenu = menu.list(SoloRecordingMenu, "Advanced Tools", {}, "")
@@ -508,8 +588,34 @@ menu.toggle(AdvancedRecordingMenu, "Fix Switch Speed For Ground Vehs", {}, "", f
 	FixSwitchSpeedForGroundVehs = toggle
 end, FixSwitchSpeedForGroundVehs)
 
+local FollowAimedVehicle = false
+menu.toggle(AdvancedRecordingMenu, "Follow Aimed Vehicle", {}, "Press aim button to choose a vehicle to follow, press shoot button to confirm vehicle selection, press shoot button without aiming to reset.", function(toggle)
+	FollowAimedVehicle = toggle
+end, FollowAimedVehicle)
+
+local FollowAimedVehicleLockOffset = false
+menu.toggle(AdvancedRecordingMenu, "Follow Aimed Vehicle Lock Offset", {}, "", function(toggle)
+	FollowAimedVehicleLockOffset = toggle
+end, FollowAimedVehicleLockOffset)
+
+local FollowOnlyWhenHandbrake = false
+menu.toggle(AdvancedRecordingMenu, "Follow Only When Handbrake Pressed", {}, "", function(toggle)
+	FollowOnlyWhenHandbrake = toggle
+end, FollowOnlyWhenHandbrake)
+
+local FollowAimedVehicleNoShootPressNeeded = false
+menu.toggle(AdvancedRecordingMenu, "Follow Aimed Vehicle | No Shoot Press", {}, "No Shoot Press Needed", function(toggle)
+	FollowAimedVehicleNoShootPressNeeded = toggle
+end, FollowAimedVehicleNoShootPressNeeded)
+
+local Advanced_EmptyRecord = false
+local Advanced_EmptyRecordPTR = menu.toggle(AdvancedRecordingMenu, "First Clear Recording File", {}, "", function(toggle)
+	Advanced_EmptyRecord = toggle
+end, Advanced_EmptyRecord)
+
+
 local Advanced_StartRecord = false
-local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Recording", {}, "", function(toggle)
+Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Recording", {}, "", function(toggle)
 	Advanced_StartRecord = toggle
 	if Advanced_StartRecord then
 		local RegisteredVehsReplayT = {}
@@ -531,8 +637,12 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 					VEHICLE.IS_THIS_MODEL_A_BIKE(ModelHash) or VEHICLE.IS_THIS_MODEL_A_BICYCLE(ModelHash) or VEHICLE.IS_THIS_MODEL_A_QUADBIKE(ModelHash) or
 					VEHICLE.IS_THIS_MODEL_AN_AMPHIBIOUS_CAR(ModelHash) or VEHICLE.IS_THIS_MODEL_AN_AMPHIBIOUS_QUADBIKE(ModelHash),
 					IsAHeli = VEHICLE.IS_THIS_MODEL_A_HELI(ModelHash), IsAPlane = VEHICLE.IS_THIS_MODEL_A_PLANE(ModelHash),
-					SteerMilis = 0, CanFixSpeed = false
+					SteerMilis = 0, CanFixSpeed = false, StayInVeh = 0, LastValidOffset = v3.new(), LastVel = v3.new()
 				}
+				if Advanced_EmptyRecord then
+					ClearFile(PathDirSaveds..RegisteredVehsReplayT[#RegisteredVehsReplayT].FileName..".txt")
+					--menu.set_value(EmptyRecordPTR, false)
+				end
 				if Veh == k then
 					CurIndex = #RegisteredVehsReplayT
 					RegisteredVehsReplayT[CurIndex].Bits = 1
@@ -571,9 +681,17 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 			PlayerPed = PLAYER.PLAYER_PED_ID()
 			local CurVeh = RegisteredVehsReplayT[CurIndex]
 			local GameTimer = MISC.GET_GAME_TIMER()
+			local Timestep = SYSTEM.TIMESTEP()
 			PAD.DISABLE_CONTROL_ACTION(0, 75, true)
 			local SwitchPressed = PAD.IS_DISABLED_CONTROL_JUST_PRESSED(0, 75)
 			local BoostPressed = PAD.IS_CONTROL_PRESSED(0, 71)
+			local AimPressed = PAD.IS_CONTROL_PRESSED(0, 25)
+			local ShootPressed = PAD.IS_CONTROL_JUST_PRESSED(0, 24)
+			local HandBrakePressed = PAD.IS_CONTROL_PRESSED(0, 76)
+			--if not PAD.IS_USING_KEYBOARD_AND_MOUSE(2) then
+			--	AimPressed = true
+			--	ShootPressed = PAD.IS_CONTROL_JUST_PRESSED(0, 69)
+			--end
 			if CurVeh ~= nil then
 				Veh = CurVeh.Veh
 				if ENTITY.DOES_ENTITY_EXIST(Veh) then
@@ -634,15 +752,102 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 					if SwitchTick < MaxTick then
 						--SwitchTick = SwitchTick + 1
 					end
+					local Pos = ENTITY.GET_ENTITY_COORDS(Veh)
+					local Vel = ENTITY.GET_ENTITY_VELOCITY(Veh)
+					if FollowAimedVehicle then
+						if AimPressed then
+							local HitCoords, DidHit, EntHit = RaycastFromCamera(PlayerPed, 1000.0, -1)
+							GRAPHICS.DRAW_LINE(Pos.x, Pos.y, Pos.z, HitCoords.x, HitCoords.y, HitCoords.z, 255, 255, 0, 255)
+							if DidHit and EntHit ~= 0 and EntHit ~= Veh and ENTITY.IS_ENTITY_A_VEHICLE(EntHit) then
+								if ShootPressed or FollowAimedVehicleNoShootPressNeeded then
+									CurVeh.StayInVeh = EntHit
+									local EntVel = ENTITY.GET_ENTITY_VELOCITY(CurVeh.StayInVeh)
+									CurVeh.LastValidOffset = ENTITY.GET_OFFSET_FROM_ENTITY_GIVEN_WORLD_COORDS(CurVeh.StayInVeh,
+									HitCoords.x, HitCoords.y, HitCoords.z )
+								end
+							end
+						else
+							if ShootPressed then
+								CurVeh.StayInVeh = 0
+							end
+						end
+						if CurVeh.StayInVeh ~= 0 and ENTITY.DOES_ENTITY_EXIST(CurVeh.StayInVeh) then
+							local IsTouching = ENTITY.IS_ENTITY_TOUCHING_ENTITY(Veh, CurVeh.StayInVeh)
+							local EntVel = ENTITY.GET_ENTITY_VELOCITY(CurVeh.StayInVeh)
+							--EntVel:mul(0.0)
+							local EntAngVel = ENTITY.GET_ENTITY_ROTATION_VELOCITY(CurVeh.StayInVeh)
+							local PredictPos = nil
+							if not IsTouching then
+								PredictPos = PredictEntityOffsetCoords(CurVeh.StayInVeh, CurVeh.LastValidOffset, Timestep, EntAngVel)
+								if is_bit_set(CurVeh.Bits, 4) then
+									if not is_bit_set(CurVeh.Bits, 3) then
+										CurVeh.Bits = set_bit(CurVeh.Bits, 3)
+									end
+								end
+							else
+								local EntOffset = ENTITY.GET_OFFSET_FROM_ENTITY_GIVEN_WORLD_COORDS(CurVeh.StayInVeh,
+								Pos.x, Pos.y, Pos.z)
+								PredictPos = PredictEntityOffsetCoords(CurVeh.StayInVeh, EntOffset, Timestep, EntAngVel)
+								if not is_bit_set(CurVeh.Bits, 4) then
+									CurVeh.Bits = set_bit(CurVeh.Bits, 4)
+								end
+								if is_bit_set(CurVeh.Bits, 3) then
+									CurVeh.Bits = clear_bit(CurVeh.Bits, 3)
+									--ENTITY.SET_ENTITY_VELOCITY(Veh, CurVeh.LastVel.x, CurVeh.LastVel.y, CurVeh.LastVel.z)
+								else
+									local CurVehVel = ENTITY.GET_ENTITY_VELOCITY(Veh)
+									CurVeh.LastVel = CurVehVel
+								end
+							end
+							if not FollowAimedVehicleLockOffset then
+								if IsTouching then
+									local HitCoords, DidHit, EntHit = RaycastCoordToCoord(Veh, PredictPos,
+									{x = PredictPos.x, y = PredictPos.y, z = PredictPos.z - 1.0}, -1)
+									if DidHit and EntHit ~= 0 and EntHit == CurVeh.StayInVeh then
+										CurVeh.LastValidOffset = ENTITY.GET_OFFSET_FROM_ENTITY_GIVEN_WORLD_COORDS(CurVeh.StayInVeh,
+										PredictPos.x, PredictPos.y, PredictPos.z)
+									end
+								end
+							end
+							GRAPHICS.DRAW_LINE(Pos.x, Pos.y, Pos.z, PredictPos.x, PredictPos.y, PredictPos.z, 255, 255, 0, 255)
+							if not FollowOnlyWhenHandbrake then
+								if not IsTouching or HandBrakePressed then
+									local IgnoreZ, VelZ = false, 0.0
+									if Pos.z >= PredictPos.z then
+										IgnoreZ = true
+										VelZ = Vel.z
+									else
+										VelZ = EntVel.z
+									end
+									SetEntitySpeedToCoord(Veh, PredictPos, 1.0, false, false, IgnoreZ, EntVel.x, EntVel.y, VelZ, false, false)
+									local CurVehVel = ENTITY.GET_ENTITY_VELOCITY(Veh)
+									CurVeh.LastVel = CurVehVel
+								end
+							else
+								if HandBrakePressed then
+									local IgnoreZ, VelZ = false, 0.0
+									if Pos.z >= PredictPos.z then
+										IgnoreZ = true
+										VelZ = Vel.z
+									else
+										VelZ = EntVel.z
+									end
+									SetEntitySpeedToCoord(Veh, PredictPos, 1.0, false, false, IgnoreZ, EntVel.x, EntVel.y, VelZ, false, false)
+									local CurVehVel = ENTITY.GET_ENTITY_VELOCITY(Veh)
+									CurVeh.LastVel = CurVehVel
+								end
+							end
+						end
+					end
 					TASK.CLEAR_VEHICLE_CRASH_TASK(Veh)
 					VEHICLE.SET_DISABLE_AUTOMATIC_CRASH_TASK(Veh, false)
 					VEHICLE.SET_DIP_STRAIGHT_DOWN_WHEN_CRASHING_PLANE(Veh, false)
 					VEHICLE.SET_VEHICLE_ENGINE_ON(Veh, true, true, false)
 					VEHICLE.SET_VEHICLE_KEEP_ENGINE_ON_WHEN_ABANDONED(Veh, true)
 					--VEHICLE.SET_ROCKET_BOOST_ACTIVE(Veh, true)
-					local Pos = ENTITY.GET_ENTITY_COORDS(Veh)
+					Pos = ENTITY.GET_ENTITY_COORDS(Veh)
 					local Rot = ENTITY.GET_ENTITY_ROTATION(Veh, 5)
-					local Vel = ENTITY.GET_ENTITY_VELOCITY(Veh)
+					Vel = ENTITY.GET_ENTITY_VELOCITY(Veh)
 					local AngVel = ENTITY.GET_ENTITY_ROTATION_VELOCITY(Veh)
 					local VehModel = ENTITY.GET_ENTITY_MODEL(Veh)
 					local BoneID = ENTITY.GET_ENTITY_BONE_INDEX_BY_NAME(Veh, "steeringwheel")
@@ -859,6 +1064,20 @@ local Advanced_StartRecordingPTR = menu.toggle(AdvancedRecordingMenu, "Start Rec
 			end
 		end
 	end
+end)
+
+menu.toggle(AdvancedRecordingMenu, "Wait Before Start Replay", {}, "", function(toggle)
+	WaitBeforeStartReplay = toggle
+end, WaitBeforeStartReplay)
+
+menu.action(AdvancedRecordingMenu, "Load Replays And Start Recording", {}, "If you want to combine replays, this is useful.", function(toggle)
+	Advanced_StartedFromScript = true
+	menu.set_value(StartSelectedReplaysPTR, true)
+end)
+
+menu.action(AdvancedRecordingMenu, "Stop Replay And Recording", {}, "", function(toggle)
+	menu.set_value(Advanced_StartRecordingPTR, false)
+	menu.set_value(StartSelectedReplaysPTR, false)
 end)
 
 --local StartReplayCurVeh = false
@@ -2696,6 +2915,351 @@ menu.toggle(GameModesMenu, "Cargobob Ride Wars", {}, "", function(toggle)
 	end
 end)
 
+local CargoPlaneStunts = false
+menu.toggle(GameModesMenu, "Cargo Plane Stunts", {}, "", function(toggle)
+	CargoPlaneStunts = toggle
+	if CargoPlaneStunts then
+		local PathsToLoad = {
+			PathDirSaveds.."PlaneStunts1_1.txt",
+			PathDirSaveds.."PlaneStunts1_2.txt",
+			PathDirSaveds.."PlaneStunts2_1.txt",
+			PathDirSaveds.."PlaneStunts2_2.txt",
+			PathDirSaveds.."PlaneStunts3_1.txt",
+			PathDirSaveds.."PlaneStunts3_2.txt",
+			PathDirSaveds.."PlaneStunts4_1.txt",
+			PathDirSaveds.."ToPlaneStunts1.txt",
+			PathDirSaveds.."ToPlaneStunts2.txt",
+			PathDirSaveds.."ToPlaneStunts3.txt",
+			PathDirSaveds.."ToPlaneStunts4.txt"
+		}
+		local CurPriorityLocal = SplitGlobals("Local_28400[iVar0]")
+		local Paths = {}
+		for k = 1, #PathsToLoad do
+			local LoadedPath = GetVectorsTable(PathsToLoad[k], true, false)
+			if LoadedPath then
+				Paths[k] = LoadedPath
+			end
+		end
+		local Vehs = {}
+		local Objs = {}
+		local VehsLocal = SplitGlobals("Local_22995.f_834.f_81")
+		local CaptureObjectsLocal = SplitGlobals("Local_22995.f_834.f_114")
+		local StartTimer = 0
+		local Started = false
+		local PlayerID = PLAYER.PLAYER_ID()
+		local LastPriority = 0
+		local Objectives = {
+			[0] = {
+				Paths = {
+					[1] = Paths[1],
+					[2] = Paths[2],
+					[4] = Paths[8],
+				},
+				Duration = 101151,
+				ReferenceID = 4
+			},
+			[1] = {
+				Paths = {
+					[1] = Paths[3],
+					[2] = Paths[4],
+					[5] = Paths[9],
+				},
+				Duration = 59914+16000,
+				ReferenceID = 5
+			},
+			[2] = {
+				Paths = {
+					[3] = Paths[5],
+					[1] = Paths[6],
+					[6] = Paths[10],
+				},
+				Duration = 144164,
+				ReferenceID = 6
+			},
+			[3] = {
+				Paths = {
+					[1] = Paths[7],
+					[0] = Paths[1],
+					[7] = Paths[11],
+				},
+				Duration = 41618,
+				ReferenceID = 7
+			}
+		}
+		local Bits = 3
+		local BringPlayersT = {}
+		local FocusedPlayerID = -1
+		local FocusedPlayer = 0
+		local BringedMilis = 0
+		while CargoPlaneStunts do
+			if SCRIPT.GET_NUMBER_OF_THREADS_RUNNING_THE_SCRIPT_WITH_THIS_HASH(joaat("fm_mission_controller")) > 0 then
+				local PlayerPed = PLAYER.PLAYER_PED_ID()
+				local PlayerID = PLAYER.PLAYER_ID()
+				if PLAYER.IS_PLAYER_CONTROL_ON(PlayerID) then
+					if not Started then
+						StartTimer = MISC.GET_GAME_TIMER()
+					end
+				 	Started = true
+				end
+				if Started then
+					local CurPriority = GET_INT_LOCAL("fm_mission_controller", CurPriorityLocal)
+					if CurPriority ~= LastPriority then
+						LastPriority = CurPriority
+						StartTimer = MISC.GET_GAME_TIMER()
+						if not is_bit_set(Bits, 1) then
+							Bits = set_bit(Bits, 1)
+						end
+						if not is_bit_set(Bits, 2) then
+							Bits = set_bit(Bits, 2)
+						end
+						BringPlayersT = {}
+					end
+					local TimeStep = SYSTEM.TIMESTEP()
+					local GameTimer = MISC.GET_GAME_TIMER()
+					for k = 1, 4 do
+						if Objs[k] == nil then
+							local Address = memory.script_local("fm_mission_controller", CaptureObjectsLocal+k)
+							local NetID = memory.read_int(Address)
+							if NetID ~= 0 then
+								local Handle = 0
+								util.spoof_script("fm_mission_controller", function()
+									Handle = NETWORK.NET_TO_OBJ(NetID)
+								end)
+								if Handle ~= 0 then
+									Objs[k] = {Handle = Handle, NetID = NetID, Address = Address}
+								end
+							end
+						end
+					end
+					for k = 1, 7 do
+						if Vehs[k] == nil then
+							local Address = memory.script_local("fm_mission_controller", VehsLocal+k)
+							local NetID = memory.read_int(Address)
+							if NetID ~= 0 then
+								local Handle = 0
+								util.spoof_script("fm_mission_controller", function()
+									Handle = NETWORK.NET_TO_VEH(NetID)
+								end)
+								if Handle ~= 0 then
+									Vehs[k] = {Handle = Handle, NetID = NetID, PathsTable = nil, Index = 1, Address = Address, IsDead = false, SetInvisible = false,
+									IsCargoPlane = ENTITY.GET_ENTITY_MODEL(Handle) == joaat("cargoplane")}
+								end
+							end
+						end
+					end
+					for k = 1, 7 do
+						if Vehs[k] ~= nil then
+							if ENTITY.DOES_ENTITY_EXIST(Vehs[k].Handle) then
+								if RequestControlOfEntity(Vehs[k].Handle) then
+									NETWORK.NETWORK_SET_ENTITY_CAN_BLEND(Vehs[k].Handle, true)
+									entities.set_can_migrate(Vehs[k].Handle, false)
+									ENTITY.SET_ENTITY_HAS_GRAVITY(Vehs[k].Handle, false)
+								end
+								if Vehs[k].IsCargoPlane then
+									--VEHICLE.SET_DOOR_ALLOWED_TO_BE_BROKEN_OFF(Vehs[k].Handle, 2, false)
+									--VEHICLE.SET_VEHICLE_DOOR_CONTROL(Vehs[k].Handle, 2, 180, 180.0)
+								end
+								VEHICLE.SET_HELI_TAIL_ROTOR_HEALTH(Vehs[k].Handle, 100000.0)
+								VEHICLE.SET_HELI_MAIN_ROTOR_HEALTH(Vehs[k].Handle, 100000.0)
+								VEHICLE.SET_HELI_TAIL_BOOM_CAN_BREAK_OFF(Vehs[k].Handle, false)
+								if is_bit_set(Bits, 1) then
+									Vehs[k].Index = 1
+								end
+								if Objectives[CurPriority] and Objectives[CurPriority].Paths[k] then
+									Vehs[k].PathsTable = Objectives[CurPriority].Paths[k]
+								end
+								if Vehs[k].PathsTable ~= nil then
+									if Vehs[k].Index > 0 and Vehs[k].Index < #Vehs[k].PathsTable then
+										local CurrentTime = GameTimer - StartTimer
+										local Frame1, Frame2 = Vehs[k].PathsTable[Vehs[k].Index], Vehs[k].PathsTable[Vehs[k].Index + 1]
+										if UseMilisAdjustLoop then
+											while CurrentTime > (Frame2.CurGameTime - Vehs[k].PathsTable[1].CurGameTime) do
+												Vehs[k].Index = Vehs[k].Index + 1
+												if Vehs[k].Index >= #Vehs[k].PathsTable then
+													Vehs[k].Index = #Vehs[k].PathsTable
+													break
+												else
+													Frame1, Frame2 = Vehs[k].PathsTable[Vehs[k].Index], Vehs[k].PathsTable[Vehs[k].Index + 1]
+												end
+												CurrentTime = MISC.GET_GAME_TIMER() - StartTimer
+											end
+										else
+											if CurrentTime > (Frame2.CurGameTime - Vehs[k].PathsTable[1].CurGameTime) then
+												Vehs[k].Index = Vehs[k].Index + 1
+												if Vehs[k].Index >= #Vehs[k].PathsTable then
+													Vehs[k].Index = #Vehs[k].PathsTable
+												else
+													Frame1, Frame2 = Vehs[k].PathsTable[Vehs[k].Index], Vehs[k].PathsTable[Vehs[k].Index + 1]
+												end
+											end
+										end
+										local Veh = Vehs[k].Handle
+										--directx.draw_text(0.5, 0.5, "CurrentTime "..CurrentTime, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
+										--directx.draw_text(0.5, 0.6, "Frame2.CurGameTime - ReplayVehsT[k].Paths[1].CurGameTime "..Frame2.CurGameTime - ReplayVehsT[k].Paths[1].CurGameTime, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
+										local Coord = {
+											x = Vehs[k].PathsTable[Vehs[k].Index].x,
+											y = Vehs[k].PathsTable[Vehs[k].Index].y,
+											z = Vehs[k].PathsTable[Vehs[k].Index].z
+										}
+										local Rot = {
+											x = Vehs[k].PathsTable[Vehs[k].Index].RotX,
+											y = Vehs[k].PathsTable[Vehs[k].Index].RotY,
+											z = Vehs[k].PathsTable[Vehs[k].Index].RotZ
+										}
+										local Vel = {
+											x = Vehs[k].PathsTable[Vehs[k].Index].VelX,
+											y = Vehs[k].PathsTable[Vehs[k].Index].VelY,
+											z = Vehs[k].PathsTable[Vehs[k].Index].VelZ
+										}
+										local AngVel = {
+											x = Vehs[k].PathsTable[Vehs[k].Index].AngVelX,
+											y = Vehs[k].PathsTable[Vehs[k].Index].AngVelY,
+											z = Vehs[k].PathsTable[Vehs[k].Index].AngVelZ
+										}
+										if is_bit_set(Bits, 1) then
+											ENTITY.SET_ENTITY_COORDS(Veh, Coord.x, Coord.y, Coord.z)
+											ENTITY.SET_ENTITY_ROTATION(Veh, Rot.x, Rot.y, Rot.z, 5)
+											if not is_bit_set(Bits, 3) then
+												Bits = set_bit(Bits, 3)
+											end
+										else
+											SetEntitySpeedToCoord(Veh, Coord, 1.0,
+											false, false, false, Vel.x, Vel.y, Vel.z, false, false, nil)
+											RotateEntityToTargetRotation(Veh, Rot, 10.0)
+										end
+									end
+								end
+							else
+								Vehs[k] = nil
+							end
+						end
+					end
+					if is_bit_set(Bits, 3) then
+						if is_bit_set(Bits, 1) then
+							Bits = clear_bit(Bits, 1)
+							Bits = clear_bit(Bits, 3)
+						end
+					end
+					local Duration = Objectives[CurPriority] and Objectives[CurPriority].Duration or 10000
+					if GameTimer > StartTimer+Duration then
+						if Objs[CurPriority+1] ~= nil and ENTITY.DOES_ENTITY_EXIST(Objs[CurPriority+1].Handle) then
+							if RequestControlOfEntity(Objs[CurPriority+1].Handle) then
+								OBJECT.ATTACH_PORTABLE_PICKUP_TO_PED(Objs[CurPriority+1].Handle, PlayerPed)
+							end
+						end
+					end
+					if is_bit_set(Bits, 2) then
+						if Objectives[CurPriority] and Vehs[Objectives[CurPriority].ReferenceID] ~= nil then
+							local BringedSet = 0
+							local ReferencePos = ENTITY.GET_ENTITY_COORDS(Vehs[Objectives[CurPriority].ReferenceID].Handle)
+							local ReferenceRot = ENTITY.GET_ENTITY_ROTATION(Vehs[Objectives[CurPriority].ReferenceID].Handle, 5)
+							local ReferenceVel = ENTITY.GET_ENTITY_VELOCITY(Vehs[Objectives[CurPriority].ReferenceID].Handle)
+							local ReferenceAngVel = ENTITY.GET_ENTITY_ROTATION_VELOCITY(Vehs[Objectives[CurPriority].ReferenceID].Handle)
+							if FocusedPlayerID == -1 then
+								for k = 0, 29 do
+									local PlayerPedID = PLAYER.GET_PLAYER_PED_SCRIPT_INDEX(k)
+									if PlayerPedID ~= 0 then
+										if not ENTITY.IS_ENTITY_DEAD(PlayerPedID) then
+											if not ENTITY.IS_ENTITY_AT_COORD(PlayerPedID, ReferencePos.x,
+											ReferencePos.y, ReferencePos.z,
+											300.0, 300.0, 300.0, false, true, 0) then
+												FocusedPlayerID = k
+												FocusedPlayer = PlayerPedID
+												BringedMilis = GameTimer
+												break
+											end
+										end
+									end
+								end
+							end
+							if FocusedPlayerID ~= -1 then
+								local PlayerPedID = PLAYER.GET_PLAYER_PED_SCRIPT_INDEX(FocusedPlayerID)
+								local PlayerVeh = PED.GET_VEHICLE_PED_IS_IN(PlayerPedID, false)
+								FocusedPlayer = PlayerPedID
+								if FocusedPlayerID ~= PlayerID then
+									NETWORK.NETWORK_SET_IN_SPECTATOR_MODE(true, PlayerPedID)
+								end
+								if PlayerVeh ~= 0 then
+									if PED.IS_PED_IN_VEHICLE(PlayerPedID, PlayerVeh, false) then
+										if not ENTITY.IS_ENTITY_AT_COORD(PlayerPedID, ReferencePos.x,
+										ReferencePos.y, ReferencePos.z,
+										300.0, 300.0, 300.0, false, true, 0) then
+											if NETWORK.NETWORK_REQUEST_CONTROL_OF_ENTITY(PlayerVeh) and GameTimer+1000 then
+												--BringedSet = BringedSet + 1
+												ENTITY.SET_ENTITY_COORDS(PlayerVeh, ReferencePos.x, ReferencePos.y, ReferencePos.z)
+												ENTITY.SET_ENTITY_ROTATION(PlayerVeh, ReferenceRot.x, ReferenceRot.y, ReferenceRot.z, 5)
+												ENTITY.SET_ENTITY_VELOCITY(PlayerVeh, ReferenceVel.x, ReferenceVel.y, ReferenceVel.z)
+												ENTITY.SET_ENTITY_ANGULAR_VELOCITY(PlayerVeh, ReferenceAngVel.x, ReferenceAngVel.y, ReferenceAngVel.z)
+												ENTITY.SET_ENTITY_COLLISION(PlayerVeh, true, true)
+											else
+												if NETWORK.NETWORK_HAS_CONTROL_OF_ENTITY(PlayerVeh) then
+													--entities.give_control(PlayerVeh, k)
+												end
+											end
+										end
+									else
+										NETWORK.NETWORK_SET_IN_SPECTATOR_MODE(false, PlayerPed)
+										if PlayerVeh ~= 0 then
+											if NETWORK.NETWORK_HAS_CONTROL_OF_ENTITY(PlayerVeh) then
+												entities.give_control(PlayerVeh, FocusedPlayerID)
+											end
+										end
+										FocusedPlayer = 0
+										FocusedPlayerID = -1
+									end
+								end
+								if FocusedPlayerID ~= -1 then
+									if ENTITY.IS_ENTITY_AT_COORD(PlayerPedID, ReferencePos.x,
+									ReferencePos.y, ReferencePos.z,
+									300.0, 300.0, 300.0, false, true, 0) then
+										if GameTimer > BringedMilis+2000 then
+											NETWORK.NETWORK_SET_IN_SPECTATOR_MODE(false, PlayerPed)
+											if PlayerVeh ~= 0 then
+												if NETWORK.NETWORK_HAS_CONTROL_OF_ENTITY(PlayerVeh) then
+													entities.give_control(PlayerVeh, FocusedPlayerID)
+												end
+											end
+											FocusedPlayer = 0
+											FocusedPlayerID = -1
+										else
+											if PlayerVeh ~= 0 then
+												ENTITY.SET_ENTITY_COORDS(PlayerVeh, ReferencePos.x, ReferencePos.y, ReferencePos.z)
+												ENTITY.SET_ENTITY_ROTATION(PlayerVeh, ReferenceRot.x, ReferenceRot.y, ReferenceRot.z, 5)
+												ENTITY.SET_ENTITY_VELOCITY(PlayerVeh, ReferenceVel.x, ReferenceVel.y, ReferenceVel.z)
+												ENTITY.SET_ENTITY_ANGULAR_VELOCITY(PlayerVeh, ReferenceAngVel.x, ReferenceAngVel.y, ReferenceAngVel.z)
+												ENTITY.SET_ENTITY_COLLISION(PlayerVeh, true, true)
+											end
+										end
+									end
+								end
+							end
+							if FocusedPlayerID == -1 then
+								NETWORK.NETWORK_SET_IN_SPECTATOR_MODE(false, PlayerPed)
+							end
+							--if FocusedPlayer ~= 0 and ENTITY.DOES_ENTITY_EXIST(FocusedPlayer) and GameTimer < BringedMilis+1000 then
+							--	NETWORK.NETWORK_SET_IN_SPECTATOR_MODE(true, FocusedPlayer)
+							--else
+							--	FocusedPlayer = 0
+							--end
+							--if BringedSet == 0 and GameTimer > BringedMilis+1000 and FocusedPlayer == 0 then
+							--	NETWORK.NETWORK_SET_IN_SPECTATOR_MODE(false, PlayerPed)
+							--end
+						end
+					end
+				end
+			else
+				Started = false
+				Vehs = {}
+				Objs = {}
+				LastPriority = 0
+				BringPlayersT = {}
+				Bits = 3
+			end
+			Wait()
+		end
+	end
+end)
+
 function GetRotationDifference(CurRot, TargetRot)
 	local RotDifference = {
         x = TargetRot.x - CurRot.x,
@@ -2914,7 +3478,7 @@ end
 --		StartTime = MISC.GET_GAME_TIMER()
 --		TimeTable[CurrentIndex] = 0  -- Reseta o tempo local do índice
 --	end
---end)
+--end)]
 
 function Rotation180To360(Angle)
     if Angle < 0.0 then
@@ -3009,4 +3573,255 @@ function GetVectorsTable(fileName, delayLoad, getOnlyFirstData)
     end
 
     return vectorTable
+end
+
+function QuaternionToEulerOrder(x, y, z, w, order)
+    local ysqr = y * y
+
+    local t0, t1, t2, t3, t4
+    local pitch, yaw, roll
+
+    if order == "XYZ" then
+        t0 = 2 * (w * x + y * z)
+        t1 = 1 - 2 * (x * x + ysqr)
+        pitch = math.atan2(t0, t1)
+
+        t2 = 2 * (w * y - z * x)
+        t2 = math.max(-1, math.min(1, t2))
+        yaw = math.asin(t2)
+
+        t3 = 2 * (w * z + x * y)
+        t4 = 1 - 2 * (ysqr + z * z)
+        roll = math.atan2(t3, t4)
+
+    elseif order == "XZY" then
+        t0 = 2 * (w * x + z * y)
+        t1 = 1 - 2 * (x * x + z * z)
+        pitch = math.atan2(t0, t1)
+
+        t2 = 2 * (w * z - x * y)
+        t2 = math.max(-1, math.min(1, t2))
+        roll = math.asin(t2)
+
+        t3 = 2 * (w * y + x * z)
+        t4 = 1 - 2 * (ysqr + z * z)
+        yaw = math.atan2(t3, t4)
+
+    elseif order == "YXZ" then
+        t0 = 2 * (w * y - x * z)
+        t1 = 1 - 2 * (y * y + z * z)
+        yaw = math.atan2(t0, t1)
+
+        t2 = 2 * (w * x + y * z)
+        t2 = math.max(-1, math.min(1, t2))
+        pitch = math.asin(t2)
+
+        t3 = 2 * (w * z - x * y)
+        t4 = 1 - 2 * (ysqr + x * x)
+        roll = math.atan2(t3, t4)
+
+    elseif order == "YZX" then
+        t0 = 2 * (w * y + x * z)
+        t1 = 1 - 2 * (y * y + x * x)
+        yaw = math.atan2(t0, t1)
+
+        t2 = 2 * (w * x - y * z)
+        t2 = math.max(-1, math.min(1, t2))
+        roll = math.asin(t2)
+
+        t3 = 2 * (w * z + y * x)
+        t4 = 1 - 2 * (ysqr + x * x)
+        pitch = math.atan2(t3, t4)
+
+    elseif order == "ZXY" then
+        t0 = 2 * (w * z - x * y)
+        t1 = 1 - 2 * (z * z + y * y)
+        roll = math.atan2(t0, t1)
+
+        t2 = 2 * (w * y + x * z)
+        t2 = math.max(-1, math.min(1, t2))
+        pitch = math.asin(t2)
+
+        t3 = 2 * (w * x - y * z)
+        t4 = 1 - 2 * (ysqr + z * z)
+        yaw = math.atan2(t3, t4)
+
+    elseif order == "ZYX" then
+        t0 = 2 * (w * z + x * y)
+        t1 = 1 - 2 * (z * z + y * y)
+        yaw = math.atan2(t0, t1)
+
+        t2 = 2 * (w * y - x * z)
+        t2 = math.max(-1, math.min(1, t2))
+        pitch = math.asin(t2)
+
+        t3 = 2 * (w * x + y * z)
+        t4 = 1 - 2 * (ysqr + x * x)
+        roll = math.atan2(t3, t4)
+    else
+        error("Ordem de rotação inválida. Escolha entre XYZ, XZY, YXZ, YZX, ZXY ou ZYX.")
+    end
+
+    return {x = rad2deg(pitch), y = rad2deg(yaw), z = rad2deg(roll)}
+end
+
+function GetValidEulerOrders(entity)
+    local validOrders = {}
+	local T1 = GetEntityQuaternion(entity)
+    -- Obtém o quaternion da entidade
+    local qX, qY, qZ, qW = T1.x, T1.y, T1.z, T1.w
+
+    -- Todas as 6 ordens possíveis de rotação Euler
+    local orders = {"XYZ", "XZY", "YXZ", "YZX", "ZXY", "ZYX"}
+
+    -- Testa cada ordem de rotação
+    for _, order in ipairs(orders) do
+		local T2 = QuaternionToEulerOrder(qX, qY, qZ, qW, order)
+        -- Converte o quaternion para Euler na ordem atual
+        local pitch, yaw, roll = T2.x, T2.y, T2.z
+		for k = 0, 5 do
+			-- Obtém a rotação Euler diretamente da native com a mesma ordem
+			local entityRot = ENTITY.GET_ENTITY_ROTATION(entity, k) -- O FiveM usa números (0 a 5)
+			
+			--local Txt = "entityRot order "..order..": x: "..string.format("%0.3f", entityRot.x).." y: "..string.format("%0.3f", entityRot.y).." z: "..string.format("%0.3f", entityRot.z)
+			--directx.draw_text(0.2 + 0.2 * k, 0.275 + 0.025 * (_), Txt, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
+			-- Tolerância para comparar flutuações numéricas
+			local tolerance = 0.01
+			-- Verifica se os valores batem dentro da tolerância
+			if math.abs(entityRot.x - pitch) < tolerance and
+			math.abs(entityRot.y - yaw) < tolerance and
+			math.abs(entityRot.z - roll) < tolerance then
+				table.insert(validOrders, order)
+			end
+		end
+    end
+
+    return validOrders
+end
+
+
+--menu.toggle_loop(menu.my_root(), "Rot Quat Test", {}, "", function(toggle)
+--	local Veh = PED.GET_VEHICLE_PED_IS_IN(PLAYER.PLAYER_PED_ID(), true)
+--	if Veh ~= 0 then
+--		--local Quat = GetEntityQuaternion(Veh)
+--		--local GameRot = ENTITY.GET_ENTITY_ROTATION(Veh, 5)
+--		--local FuncRot = QuaternionToEulerOrder(Quat.x, Quat.y, Quat.z, Quat.w, "ZYX")
+--		--FuncRot.x = rad2deg(FuncRot.x)
+--		--FuncRot.y = rad2deg(FuncRot.y)
+--		--FuncRot.z = rad2deg(FuncRot.z)
+--		--local Txt = "GameRot: x: "..string.format("%0.3f", GameRot.x).." y: "..string.format("%0.3f", GameRot.y).." z: "..string.format("%0.3f", GameRot.z)
+--		--directx.draw_text(0.7, 0.5, Txt, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
+--		--local Txt2 = "FuncRot: x: "..string.format("%0.3f", FuncRot.x).." y: "..string.format("%0.3f", FuncRot.y).." z: "..string.format("%0.3f", FuncRot.z)
+--		--directx.draw_text(0.7, 0.525, Txt2, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
+--		local ValidOrders = GetValidEulerOrders(Veh)
+--		for k = 1, #ValidOrders do
+--			directx.draw_text(0.3, 0.475 + 0.025 * k, ValidOrders[k], ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
+--		end
+--	end
+--end)
+function GET_INT_LOCAL(script, script_local)
+	if memory.script_local(script, script_local) ~= 0 then
+		local ReadLocal = memory.read_int(memory.script_local(script, script_local))
+		if ReadLocal ~= nil then
+			return ReadLocal
+		end
+	end
+end
+
+--menu.action(menu.my_root(), "Event Test", {}, "", function(toggle)
+	--local ArgsAddr = memory.alloc(8*5)
+	--memory.write_int(ArgsAddr + 8 * 0, -793987806)
+	--memory.write_int(ArgsAddr + 8 * 1, PLAYER.PLAYER_ID())
+	--memory.write_int(ArgsAddr + 8 * 2, 0) -- Player to swap team
+	--memory.write_int(ArgsAddr + 8 * 3, 0) -- Team
+	--memory.write_int(ArgsAddr + 8 * 4, 3) -- Spawn Point Index
+	--memory.write_int(ArgsAddr + 8 * 5, 1) -- Set
+	--SCRIPT._SEND_TU_SCRIPT_EVENT_NEW(1, ArgsAddr, 8, 1 << PLAYER.PLAYER_ID(), -793987806)
+
+	
+	--local ArgsAddr = memory.alloc(8*10)
+	--memory.write_int(ArgsAddr + 8 * 0, -1514442960)
+	--memory.write_int(ArgsAddr + 8 * 1, PLAYER.PLAYER_ID())
+	--memory.write_int(ArgsAddr + 8 * 2, 0) -- Player to swap team
+	--memory.write_int(ArgsAddr + 8 * 3, 0) -- Team
+	--memory.write_int(ArgsAddr + 8 * 4, 0) -- Spawn Point Index
+	--memory.write_int(ArgsAddr + 8 * 5, 0) -- Set
+	--memory.write_int(ArgsAddr + 8 * 6, 0) -- Set
+	--memory.write_int(ArgsAddr + 8 * 7, 0) -- Set
+	--memory.write_int(ArgsAddr + 8 * 8, 0) -- Set
+	--memory.write_int(ArgsAddr + 8 * 9, 0) -- Set
+	--SCRIPT._SEND_TU_SCRIPT_EVENT_NEW(1, ArgsAddr, 10, 1 << PLAYER.PLAYER_ID(), -1514442960)
+--end)
+
+--for k = 0, 29 do
+--	local PlayerPedID = PLAYER.GET_PLAYER_PED_SCRIPT_INDEX(k)
+--	if PlayerPedID ~= 0 then
+--		NETWORK.NETWORK_SET_IN_SPECTATOR_MODE(false, PlayerPedID)
+--	end
+--end
+
+function RaycastFromCamera(PlayerPed, Distance, Flags)
+	local FlagBits = -1
+	if Flags ~= nil then
+		FlagBits = Flags
+	end
+	local HitCoords = v3.new()
+	local CamRot = CAM.GET_GAMEPLAY_CAM_ROT(2)
+	local FVect = CamRot:toDir()
+	local PPos = CAM.GET_GAMEPLAY_CAM_COORD()
+	local AdjustedX = PPos.x + FVect.x * Distance
+	local AdjustedY = PPos.y + FVect.y * Distance
+	local AdjustedZ = PPos.z + FVect.z * Distance
+	local DidHit = memory.alloc(1)
+	local EndCoords = v3.new()
+	local Normal = v3.new()
+	local HitEntity = memory.alloc_int()
+	
+	local Handle = SHAPETEST.START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE(
+		PPos.x, PPos.y, PPos.z,
+		AdjustedX, AdjustedY, AdjustedZ,
+		FlagBits,
+		PlayerPed, 7
+	)
+	SHAPETEST.GET_SHAPE_TEST_RESULT(Handle, DidHit, EndCoords, Normal, HitEntity)
+	if memory.read_byte(DidHit) ~= 0 then
+		HitCoords.x = EndCoords.x
+		HitCoords.y = EndCoords.y
+		HitCoords.z = EndCoords.z
+	else
+		HitCoords.x = AdjustedX
+		HitCoords.y = AdjustedY
+		HitCoords.z = AdjustedZ
+	end
+	return HitCoords, memory.read_byte(DidHit) ~= 0, memory.read_int(HitEntity)
+end
+
+function RaycastCoordToCoord(Entity, PPos, AdjustedVect, Flags)
+	local FlagBits = -1
+	if Flags ~= nil then
+		FlagBits = Flags
+	end
+	local HitCoords = v3.new()
+	local DidHit = memory.alloc(1)
+	local EndCoords = v3.new()
+	local Normal = v3.new()
+	local HitEntity = memory.alloc_int()
+	
+	local Handle = SHAPETEST.START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE(
+		PPos.x, PPos.y, PPos.z,
+		AdjustedVect.x, AdjustedVect.y, AdjustedVect.z,
+		FlagBits,
+		Entity, 7
+	)
+	SHAPETEST.GET_SHAPE_TEST_RESULT(Handle, DidHit, EndCoords, Normal, HitEntity)
+	if memory.read_byte(DidHit) ~= 0 then
+		HitCoords.x = EndCoords.x
+		HitCoords.y = EndCoords.y
+		HitCoords.z = EndCoords.z
+	else
+		HitCoords.x = AdjustedVect.x
+		HitCoords.y = AdjustedVect.y
+		HitCoords.z = AdjustedVect.z
+	end
+	return HitCoords, memory.read_byte(DidHit) ~= 0, memory.read_int(HitEntity), Normal
 end
