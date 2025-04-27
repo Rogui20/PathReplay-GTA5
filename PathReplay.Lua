@@ -161,48 +161,105 @@ local EmptyRecordPTR = menu.toggle(SoloRecordingMenu, "First Clear Recording Fil
 end, EmptyRecord)
 
 local RecordT = {}
-
+local GlobalReplayTime = 0  -- tempo virtual de reprodução, em ms
+local ReplaySpeed = 1.0     -- 1.0 = velocidade normal, negativo seria rebobinar
+local IsRewinding = false
 local StartRecord = false
 local StartRecordingPTR = menu.toggle(SoloRecordingMenu, "Start Recording", {}, "", function(toggle)
-	StartRecord = toggle
-	if StartRecord then
-		if EmptyRecord then
-			ClearFile(PathDirSaveds..FileNameForSave..".txt")
-			--menu.set_value(EmptyRecordPTR, false)
-		end
-		while StartRecord do
-			local PlayerPed = PLAYER.PLAYER_PED_ID()
-			local Veh = PED.GET_VEHICLE_PED_IS_IN(PlayerPed, true)
-			local GameTimer = MISC.GET_GAME_TIMER()
-			if Veh ~= 0 then
-				local Pos = ENTITY.GET_ENTITY_COORDS(Veh)
-				local Rot = ENTITY.GET_ENTITY_ROTATION(Veh, 5)
-				local Vel = ENTITY.GET_ENTITY_VELOCITY(Veh)
-				local AngVel = ENTITY.GET_ENTITY_ROTATION_VELOCITY(Veh)
-				local VehModel = ENTITY.GET_ENTITY_MODEL(Veh)
-				local BoneID = ENTITY.GET_ENTITY_BONE_INDEX_BY_NAME(Veh, "steeringwheel")
-				local Steering = 0.0
-				if BoneID ~= 0 then
-					local SteeringRot = ENTITY.GET_ENTITY_BONE_OBJECT_ROTATION(Veh, BoneID)
-					SteeringRot:normalise()
-					Steering = -SteeringRot.y
-				end
-				RecordT[#RecordT+1] = ToTxt(Pos, Rot, Vel, AngVel, GameTimer, VehModel, Steering)
-				if #RecordT >= 1000 then
-					local BigText = table.concat(RecordT)
-					WriteFile(PathDirSaveds..FileNameForSave..".txt", BigText)
-					RecordT = {}
-				end
-			end
-			--directx.draw_text(0.5, 0.5, "DeltaTime "..DeltaTime, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
-			--directx.draw_text(0.5, 0.6, "GameTimer "..GameTimer, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
-			Wait()
-		end
-		local BigText = table.concat(RecordT)
-		WriteFile(PathDirSaveds..FileNameForSave..".txt", BigText)
-		RecordT = {}
-	end
+    StartRecord = toggle
+    if StartRecord then
+		--GlobalReplayTime = 0
+        if EmptyRecord then
+            ClearFile(PathDirSaveds..FileNameForSave..".txt")
+        end
+        local StartedTime = MISC.GET_GAME_TIMER()
+        local LastTime = 0
+        local PausedTimeStart = 0
+        local IsPaused = false
+        local LastValidTime = 0
+
+        while StartRecord do
+            local PlayerPed = PLAYER.PLAYER_PED_ID()
+            local Veh = PED.GET_VEHICLE_PED_IS_IN(PlayerPed, true)
+            local GameTimer = MISC.GET_GAME_TIMER()
+
+            PAD.DISABLE_CONTROL_ACTION(0, 75)
+			PAD.DISABLE_CONTROL_ACTION(0, 99)
+            local ExitPressed = PAD.IS_DISABLED_CONTROL_PRESSED(0, 75) or PAD.IS_DISABLED_CONTROL_PRESSED(0, 99)
+
+            if Veh ~= 0 then
+                if ExitPressed then
+                    if not IsPaused then
+                        IsPaused = true
+                        PausedTimeStart = GameTimer
+                    end
+
+                    -- Rebobinar: remover último frame
+                    if #RecordT > 0 then
+                        table.remove(RecordT, #RecordT)
+
+                        -- Atualiza o LastValidTime
+                        if #RecordT > 0 then
+                            local LastFrame = GetVectorsFromIndex(RecordT[#RecordT])
+                            LastValidTime = LastFrame.CurGameTime
+                            ENTITY.SET_ENTITY_COORDS(Veh, LastFrame.x, LastFrame.y, LastFrame.z, false, false, true)
+                            ENTITY.SET_ENTITY_ROTATION(Veh, LastFrame.RotX, LastFrame.RotY, LastFrame.RotZ, 5)
+                            ENTITY.SET_ENTITY_VELOCITY(Veh, LastFrame.VelX, LastFrame.VelY, LastFrame.VelZ)
+                            ENTITY.SET_ENTITY_ANGULAR_VELOCITY(Veh, LastFrame.AngVelX, LastFrame.AngVelY, LastFrame.AngVelZ)
+							VEHICLE.SET_VEHICLE_FORWARD_SPEED(Veh, math.sqrt(LastFrame.VelX^2 + LastFrame.VelY^2 + LastFrame.VelZ^2))
+                        else
+                            LastValidTime = 0
+                        end
+                    end
+
+                else
+                    if IsPaused then
+                        -- Terminou rebobinamento
+                        local GameTimerNow = MISC.GET_GAME_TIMER()
+
+                        -- ⚡ Aqui a correção real:
+                        StartedTime = GameTimerNow - LastValidTime
+
+                        IsPaused = false
+                    end
+
+                    -- Gravar normalmente
+                    local Elapsed = GameTimer - StartedTime
+                    LastTime = Elapsed
+					--Global_StartedTime = StartedTime
+
+                    local Pos = ENTITY.GET_ENTITY_COORDS(Veh)
+                    local Rot = ENTITY.GET_ENTITY_ROTATION(Veh, 5)
+                    local Vel = ENTITY.GET_ENTITY_VELOCITY(Veh)
+                    local AngVel = ENTITY.GET_ENTITY_ROTATION_VELOCITY(Veh)
+                    local VehModel = ENTITY.GET_ENTITY_MODEL(Veh)
+                    local BoneID = ENTITY.GET_ENTITY_BONE_INDEX_BY_NAME(Veh, "steeringwheel")
+                    local Steering = 0.0
+                    if BoneID ~= 0 then
+                        local SteeringRot = ENTITY.GET_ENTITY_BONE_OBJECT_ROTATION(Veh, BoneID)
+                        SteeringRot:normalise()
+                        Steering = -SteeringRot.y
+                    end
+
+                    RecordT[#RecordT+1] = ToTxt(Pos, Rot, Vel, AngVel, Elapsed, VehModel, Steering)
+                end
+            end
+			IsRewinding = IsPaused
+            -- Debug Visual
+            --directx.draw_text(0.5, 0.55, "GameTimer "..GameTimer, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
+            --directx.draw_text(0.5, 0.6, "StartedTime "..StartedTime, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
+            --directx.draw_text(0.5, 0.65, "LastTime "..LastTime, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
+
+            Wait()
+        end
+
+        -- Salvar no final
+        local BigText = table.concat(RecordT)
+        WriteFile(PathDirSaveds..FileNameForSave..".txt", BigText)
+        RecordT = {}
+    end
 end)
+
 
 --menu.slider_float(menu.my_root(), "Slowing Power", {"slowpower"}, "The bigger the number, more slow the replay will be.", 100, 5000, math.floor(GlobalSpd * 100), 5, function(OnChange)
 --	GlobalSpd = OnChange / 100
@@ -323,6 +380,7 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 									HUD.SET_BLIP_COLOUR(ReplayVehsT[k].PedBlip, 1)
 									HUD.SHOW_HEADING_INDICATOR_ON_BLIP(ReplayVehsT[k].PedBlip, true)
 									PED.SET_PED_COMBAT_ATTRIBUTES(ReplayVehsT[k].PedHandle, 3, false)
+									PED.SET_PED_CAN_BE_KNOCKED_OFF_VEHICLE(ReplayVehsT[k].PedHandle, 1)
 								else
 									STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(joaat(PedModel))
 								end
@@ -352,6 +410,7 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 			--end
 			Wait()
 		end
+		GlobalReplayTime = 0
 		local StartTimer = MISC.GET_GAME_TIMER()
 		while StartReplay do
 			--VEHICLE.SET_VEHICLE_DOOR_CONTROL(Veh, 2, 360, 360.0)
@@ -368,6 +427,18 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 				Advanced_StartedFromScript = false
 				menu.set_value(Advanced_StartRecordingPTR, true)
 			end
+			local DeltaTime = MISC.GET_FRAME_TIME() * 1000.0  -- DeltaTime em milissegundos
+
+            if not IsRewinding then
+                -- Avançar normalmente
+                GlobalReplayTime = GlobalReplayTime + (DeltaTime * ReplaySpeed)
+            else
+                -- Rebobinar
+                GlobalReplayTime = GlobalReplayTime - (DeltaTime * ReplaySpeed)
+                if GlobalReplayTime < 0 then
+                    GlobalReplayTime = 0  -- não pode ir antes do início
+                end
+            end
 			for k = 1, #ReplayVehsT do
 				local Veh = ReplayVehsT[k].VehHandle
 				if Veh ~= 0 and ENTITY.DOES_ENTITY_EXIST(Veh) then
@@ -392,42 +463,8 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 						end
 					end
 					if ReplayVehsT[k].Index > 0 and ReplayVehsT[k].Index < #ReplayVehsT[k].Paths then
-						local CurrentTime = GameTimer - ReplayVehsT[k].StartTimer
-						local Frame1, Frame2 = ReplayVehsT[k].Paths[ReplayVehsT[k].Index], ReplayVehsT[k].Paths[ReplayVehsT[k].Index + 1]
-						if UseMilisAdjustLoop then
-							local It = 0
-							local Debug = false
-							if Debug then
-								if CurrentTime < (Frame2.CurGameTime - ReplayVehsT[k].Paths[1].CurGameTime) then
-									Print(CurrentTime - (Frame2.CurGameTime - ReplayVehsT[k].Paths[1].CurGameTime))
-								end
-							end
-							while CurrentTime > (Frame2.CurGameTime - ReplayVehsT[k].Paths[1].CurGameTime) do
-								if Debug then
-									It = It + 1
-									if It > 10 then
-										Print("It "..It.." Index "..ReplayVehsT[k].Index)
-									end
-								end
-								ReplayVehsT[k].Index = ReplayVehsT[k].Index + 1
-								if ReplayVehsT[k].Index >= #ReplayVehsT[k].Paths then
-									ReplayVehsT[k].Index = #ReplayVehsT[k].Paths
-									break
-								else
-									Frame1, Frame2 = ReplayVehsT[k].Paths[ReplayVehsT[k].Index], ReplayVehsT[k].Paths[ReplayVehsT[k].Index + 1]
-								end
-								CurrentTime = MISC.GET_GAME_TIMER() - ReplayVehsT[k].StartTimer
-							end
-						else
-							if CurrentTime > (Frame2.CurGameTime - ReplayVehsT[k].Paths[1].CurGameTime) then
-								ReplayVehsT[k].Index = ReplayVehsT[k].Index + 1
-								if ReplayVehsT[k].Index >= #ReplayVehsT[k].Paths then
-									ReplayVehsT[k].Index = #ReplayVehsT[k].Paths
-								else
-									Frame1, Frame2 = ReplayVehsT[k].Paths[ReplayVehsT[k].Index], ReplayVehsT[k].Paths[ReplayVehsT[k].Index + 1]
-								end
-							end
-						end
+						
+						UpdateReplayIndexByTime(ReplayVehsT[k])
 						
 						--directx.draw_text(0.5, 0.5, "CurrentTime "..CurrentTime, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
 						--directx.draw_text(0.5, 0.6, "Frame2.CurGameTime - ReplayVehsT[k].Paths[1].CurGameTime "..Frame2.CurGameTime - ReplayVehsT[k].Paths[1].CurGameTime, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
@@ -471,10 +508,17 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 								ReplayVehsT[k].SteerMilis = 0
 							end
 						end
-						if not ReplayTeleportMode then
-							SetEntitySpeedToCoord(Veh, Coord, 1.0,
-							false, false, false, Vel.x, Vel.y, Vel.z, false, false, nil)
-							RotateEntityToTargetRotation(Veh, Rot, 10.0)
+						if not IsRewinding then
+							if not ReplayTeleportMode then
+								SetEntitySpeedToCoord(Veh, Coord, 1.0,
+								false, false, false, Vel.x, Vel.y, Vel.z, false, false, nil)
+								RotateEntityToTargetRotation(Veh, Rot, 10.0)
+							else
+								ENTITY.SET_ENTITY_COORDS_NO_OFFSET(Veh, Coord.x, Coord.y, Coord.z)
+								ENTITY.SET_ENTITY_ROTATION(Veh, Rot.x, Rot.y, Rot.z, 5)
+								ENTITY.SET_ENTITY_VELOCITY(Veh, Vel.x, Vel.y, Vel.z)
+								ENTITY.SET_ENTITY_ANGULAR_VELOCITY(Veh, AngVel.x, AngVel.y, AngVel.z)
+							end
 						else
 							ENTITY.SET_ENTITY_COORDS_NO_OFFSET(Veh, Coord.x, Coord.y, Coord.z)
 							ENTITY.SET_ENTITY_ROTATION(Veh, Rot.x, Rot.y, Rot.z, 5)
@@ -521,6 +565,360 @@ local StartSelectedReplaysPTR = menu.toggle(SoloRecordingMenu, "Start Selected R
 		ReplayVehsT = {}
 	end
 end)
+
+local RecordAndReplays = false
+local StartRecordingAndReplays = menu.toggle(SoloRecordingMenu, "Start Recording + Replays", {}, "", function(toggle)
+	RecordAndReplays = toggle
+	if RecordAndReplays then
+		for k, value in pairs(ReplaysToLoad) do
+			ReplayVehsT[#ReplayVehsT+1] = {
+				VehHandle = 0,
+				ModelHash = 0,
+				Paths = GetVectorsTable(k, true, false),
+				Index = 0,
+				Blip = 0,
+				StartTimer = 0,
+				PedHandle = 0,
+				PedBlip = 0,
+				HasSetStartTimer = false,
+				SteerMilis = 0,
+				IsCargoPlane = false
+			}
+		end
+		for k = 1, #ReplayVehsT do
+			if ReplayVehsT[k].Paths ~= nil and ReplayVehsT[k].Paths[1] ~= nil then
+				if not UseStoredVehicleModel then
+					ReplayVehsT[k].Paths[1].ModelHash = joaat(Model)
+				end
+				ReplayVehsT[k].ModelHash = ReplayVehsT[k].Paths[1].ModelHash or joaat(Model)
+				if ReplayVehsT[k].VehHandle == 0 then
+					if not STREAMING.IS_MODEL_VALID(ReplayVehsT[k].ModelHash) then
+						ReplayVehsT[k].ModelHash = joaat(Model)
+					end
+					ReplayVehsT[k].IsCargoPlane = ReplayVehsT[k].ModelHash == joaat("cargoplane") or ReplayVehsT[k].ModelHash == joaat("cargoplane2")
+					STREAMING.REQUEST_MODEL(ReplayVehsT[k].ModelHash)
+					while not STREAMING.HAS_MODEL_LOADED(ReplayVehsT[k].ModelHash) do
+						Wait()
+					end
+					ReplayVehsT[k].VehHandle = VEHICLE.CREATE_VEHICLE(ReplayVehsT[k].ModelHash, ReplayVehsT[k].Paths[1].x, ReplayVehsT[k].Paths[1].y, ReplayVehsT[k].Paths[1].z, ReplayVehsT[k].Paths[1].RotZ, true, true, false)
+					if ReplayVehsT[k].VehHandle ~= 0 then
+						STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(ReplayVehsT[k].ModelHash)
+						ENTITY.SET_ENTITY_AS_MISSION_ENTITY(ReplayVehsT[k].VehHandle, false, true)
+						entities.set_can_migrate(ReplayVehsT[k].VehHandle, false)
+						ENTITY.SET_ENTITY_INVINCIBLE(ReplayVehsT[k].VehHandle, true)
+						NETWORK.NETWORK_SET_ENTITY_CAN_BLEND(ReplayVehsT[k].VehHandle, true)
+						ReplayVehsT[k].Blip = HUD.ADD_BLIP_FOR_ENTITY(ReplayVehsT[k].VehHandle)
+						HUD.SET_BLIP_COLOUR(ReplayVehsT[k].Blip, 3)
+						UpgradeVehicle(ReplayVehsT[k].VehHandle, true, true, true)
+						if CreatePedToReplay then
+							if VEHICLE.IS_VEHICLE_DRIVEABLE(ReplayVehsT[k].VehHandle, false) then
+								STREAMING.REQUEST_MODEL(joaat(PedModel))
+								while not STREAMING.HAS_MODEL_LOADED(joaat(PedModel)) do
+									Wait()
+								end
+								ReplayVehsT[k].PedHandle = PED.CREATE_PED_INSIDE_VEHICLE(ReplayVehsT[k].VehHandle, 28, joaat(PedModel), -1, true, true)
+								if ReplayVehsT[k].PedHandle ~= 0 then
+									STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(joaat(PedModel))
+									ENTITY.SET_ENTITY_AS_MISSION_ENTITY(ReplayVehsT[k].PedHandle, false, true)
+									entities.set_can_migrate(ReplayVehsT[k].PedHandle, false)
+									ENTITY.SET_ENTITY_INVINCIBLE(ReplayVehsT[k].PedHandle, true)
+									NETWORK.NETWORK_SET_ENTITY_CAN_BLEND(ReplayVehsT[k].PedHandle, true)
+									ReplayVehsT[k].PedBlip = HUD.ADD_BLIP_FOR_ENTITY(ReplayVehsT[k].PedHandle)
+									HUD.SET_BLIP_COLOUR(ReplayVehsT[k].PedBlip, 1)
+									HUD.SHOW_HEADING_INDICATOR_ON_BLIP(ReplayVehsT[k].PedBlip, true)
+									PED.SET_PED_COMBAT_ATTRIBUTES(ReplayVehsT[k].PedHandle, 3, false)
+									PED.SET_PED_CAN_BE_KNOCKED_OFF_VEHICLE(ReplayVehsT[k].PedHandle, 1)
+								else
+									STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(joaat(PedModel))
+								end
+							end
+						end
+						ENTITY.FREEZE_ENTITY_POSITION(ReplayVehsT[k].VehHandle, true)
+						ENTITY.SET_ENTITY_COORDS(ReplayVehsT[k].VehHandle, ReplayVehsT[k].Paths[1].x, ReplayVehsT[k].Paths[1].y, ReplayVehsT[k].Paths[1].z)
+						ENTITY.SET_ENTITY_ROTATION(ReplayVehsT[k].VehHandle, ReplayVehsT[k].Paths[1].RotX, ReplayVehsT[k].Paths[1].RotY, ReplayVehsT[k].Paths[1].RotZ, 5)
+					else
+						STREAMING.SET_MODEL_AS_NO_LONGER_NEEDED(ReplayVehsT[k].ModelHash)
+					end
+				end
+			end
+		end
+		local LastEnt = 0
+		local WaitWasEnabled = false
+		while WaitBeforeStartReplay do
+			WaitWasEnabled = true
+			--if LastEnt == 0 then
+				local PVeh = PED.GET_VEHICLE_PED_IS_IN(PLAYER.PLAYER_PED_ID(), true)
+				if PVeh ~= 0 then
+					local NewLastEnt = ENTITY._GET_LAST_ENTITY_HIT_BY_ENTITY(PVeh)
+					if NewLastEnt ~= 0 then
+						LastEnt = NewLastEnt
+					end
+				end
+			--end
+			Wait()
+		end
+		GlobalReplayTime = 0
+		
+        if EmptyRecord then
+            ClearFile(PathDirSaveds..FileNameForSave..".txt")
+        end
+        local StartedTime = MISC.GET_GAME_TIMER()
+        local LastTime = 0
+        local PausedTimeStart = 0
+        local IsPaused = false
+        local LastValidTime = 0
+
+		local StartTimer = StartedTime
+		while RecordAndReplays do
+			local PlayerPed = PLAYER.PLAYER_PED_ID()
+            local Veh = PED.GET_VEHICLE_PED_IS_IN(PlayerPed, true)
+            local GameTimer = MISC.GET_GAME_TIMER()
+
+            PAD.DISABLE_CONTROL_ACTION(0, 75)
+			PAD.DISABLE_CONTROL_ACTION(0, 99)
+            local ExitPressed = PAD.IS_DISABLED_CONTROL_PRESSED(0, 75) or PAD.IS_DISABLED_CONTROL_PRESSED(0, 99)
+
+            if Veh ~= 0 then
+                if ExitPressed then
+                    if not IsPaused then
+                        IsPaused = true
+                        PausedTimeStart = GameTimer
+                    end
+
+                    -- Rebobinar: remover último frame
+                    if #RecordT > 0 then
+                        table.remove(RecordT, #RecordT)
+
+                        -- Atualiza o LastValidTime
+                        if #RecordT > 0 then
+                            local LastFrame = GetVectorsFromIndex(RecordT[#RecordT])
+                            LastValidTime = LastFrame.CurGameTime
+                            ENTITY.SET_ENTITY_COORDS(Veh, LastFrame.x, LastFrame.y, LastFrame.z, false, false, true)
+                            ENTITY.SET_ENTITY_ROTATION(Veh, LastFrame.RotX, LastFrame.RotY, LastFrame.RotZ, 5)
+                            ENTITY.SET_ENTITY_VELOCITY(Veh, LastFrame.VelX, LastFrame.VelY, LastFrame.VelZ)
+                            ENTITY.SET_ENTITY_ANGULAR_VELOCITY(Veh, LastFrame.AngVelX, LastFrame.AngVelY, LastFrame.AngVelZ)
+							VEHICLE.SET_VEHICLE_FORWARD_SPEED(Veh, math.sqrt(LastFrame.VelX^2 + LastFrame.VelY^2 + LastFrame.VelZ^2))
+                        else
+                            LastValidTime = 0
+                        end
+                    end
+
+                else
+                    if IsPaused then
+                        -- Terminou rebobinamento
+                        local GameTimerNow = MISC.GET_GAME_TIMER()
+
+                        -- ⚡ Aqui a correção real:
+                        StartedTime = GameTimerNow - LastValidTime
+
+                        IsPaused = false
+                    end
+
+                    -- Gravar normalmente
+                    local Elapsed
+					if IsRewinding then
+						Elapsed = GlobalReplayTime
+					else
+						Elapsed = GlobalReplayTime
+					end
+
+                    LastTime = Elapsed
+					--Global_StartedTime = StartedTime
+
+                    local Pos = ENTITY.GET_ENTITY_COORDS(Veh)
+                    local Rot = ENTITY.GET_ENTITY_ROTATION(Veh, 5)
+                    local Vel = ENTITY.GET_ENTITY_VELOCITY(Veh)
+                    local AngVel = ENTITY.GET_ENTITY_ROTATION_VELOCITY(Veh)
+                    local VehModel = ENTITY.GET_ENTITY_MODEL(Veh)
+                    local BoneID = ENTITY.GET_ENTITY_BONE_INDEX_BY_NAME(Veh, "steeringwheel")
+                    local Steering = 0.0
+                    if BoneID ~= 0 then
+                        local SteeringRot = ENTITY.GET_ENTITY_BONE_OBJECT_ROTATION(Veh, BoneID)
+                        SteeringRot:normalise()
+                        Steering = -SteeringRot.y
+                    end
+
+                    RecordT[#RecordT+1] = ToTxt(Pos, Rot, Vel, AngVel, Elapsed, VehModel, Steering)
+                end
+            end
+			IsRewinding = IsPaused
+            -- Debug Visual
+            --directx.draw_text(0.5, 0.55, "GameTimer "..GameTimer, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
+            --directx.draw_text(0.5, 0.6, "StartedTime "..StartedTime, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
+            --directx.draw_text(0.5, 0.65, "LastTime "..LastTime, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
+			--VEHICLE.SET_VEHICLE_DOOR_CONTROL(Veh, 2, 360, 360.0)
+			if StartedFromScript then
+				StartedFromScript = false
+				menu.set_value(StartRecordingPTR, true)
+			end
+			if Multiplayer_StartedFromScript then
+				Multiplayer_StartedFromScript = false
+				menu.set_value(MultiplayerRecordingPTR, true)
+			end
+			if Advanced_StartedFromScript then
+				Advanced_StartedFromScript = false
+				menu.set_value(Advanced_StartRecordingPTR, true)
+			end
+			local DeltaTime = MISC.GET_FRAME_TIME() * 1000.0  -- DeltaTime em milissegundos
+
+            if not IsRewinding then
+                -- Avançar normalmente
+                GlobalReplayTime = GlobalReplayTime + (DeltaTime * ReplaySpeed)
+            else
+                -- Rebobinar
+                GlobalReplayTime = GlobalReplayTime - (DeltaTime * ReplaySpeed)
+                if GlobalReplayTime < 0 then
+                    GlobalReplayTime = 0  -- não pode ir antes do início
+                end
+            end
+			for k = 1, #ReplayVehsT do
+				local Veh = ReplayVehsT[k].VehHandle
+				if Veh ~= 0 and ENTITY.DOES_ENTITY_EXIST(Veh) then
+					ENTITY.FREEZE_ENTITY_POSITION(ReplayVehsT[k].VehHandle, false)
+					if ReplayVehsT[k].Index == 0 then
+						ReplayVehsT[k].Index = FrameStartIndex
+						local PathsData = ReplayVehsT[k].Paths[FrameStartIndex] or ReplayVehsT[k].Paths[1]
+						ENTITY.SET_ENTITY_COORDS(Veh, PathsData.x, PathsData.y, PathsData.z)
+						ENTITY.SET_ENTITY_ROTATION(Veh, PathsData.RotX, PathsData.RotY, PathsData.RotZ, 5)
+						if not ReplayVehsT[k].HasSetStartTimer then
+							ReplayVehsT[k].HasSetStartTimer = true
+							ReplayVehsT[k].StartTimer = StartTimer
+						else
+							ReplayVehsT[k].StartTimer = GameTimer
+						end
+						if FrameStartIndex > 1 then
+							if ReplayVehsT[k].Index > 0 and ReplayVehsT[k].Index < #ReplayVehsT[k].Paths then
+								local Frame1, Frame2 = ReplayVehsT[k].Paths[ReplayVehsT[k].Index], ReplayVehsT[k].Paths[ReplayVehsT[k].Index + 1]
+								ReplayVehsT[k].StartTimer = StartTimer - (Frame2.CurGameTime - ReplayVehsT[k].Paths[1].CurGameTime)
+								--Print("ReplayVehsT[k].StartTimer "..ReplayVehsT[k].StartTimer.." StartTimer "..StartTimer)
+							end
+						end
+					end
+					if ReplayVehsT[k].Index > 0 and ReplayVehsT[k].Index < #ReplayVehsT[k].Paths then
+						
+						UpdateReplayIndexByTime(ReplayVehsT[k])
+						
+						--directx.draw_text(0.5, 0.5, "CurrentTime "..CurrentTime, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
+						--directx.draw_text(0.5, 0.6, "Frame2.CurGameTime - ReplayVehsT[k].Paths[1].CurGameTime "..Frame2.CurGameTime - ReplayVehsT[k].Paths[1].CurGameTime, ALIGN_CENTRE, 1.0, {r = 0.0, g = 1.0 , b = 1.0, a = 1.0}, false)
+						local Coord = {
+							x = ReplayVehsT[k].Paths[ReplayVehsT[k].Index].x,
+							y = ReplayVehsT[k].Paths[ReplayVehsT[k].Index].y,
+							z = ReplayVehsT[k].Paths[ReplayVehsT[k].Index].z
+						}
+						local Rot = {
+							x = ReplayVehsT[k].Paths[ReplayVehsT[k].Index].RotX,
+							y = ReplayVehsT[k].Paths[ReplayVehsT[k].Index].RotY,
+							z = ReplayVehsT[k].Paths[ReplayVehsT[k].Index].RotZ
+						}
+						local Vel = {
+							x = ReplayVehsT[k].Paths[ReplayVehsT[k].Index].VelX,
+							y = ReplayVehsT[k].Paths[ReplayVehsT[k].Index].VelY,
+							z = ReplayVehsT[k].Paths[ReplayVehsT[k].Index].VelZ
+						}
+						local AngVel = {
+							x = ReplayVehsT[k].Paths[ReplayVehsT[k].Index].AngVelX,
+							y = ReplayVehsT[k].Paths[ReplayVehsT[k].Index].AngVelY,
+							z = ReplayVehsT[k].Paths[ReplayVehsT[k].Index].AngVelZ
+						}
+						if ReplayVehsT[k].IsCargoPlane then
+							VEHICLE.SET_DOOR_ALLOWED_TO_BE_BROKEN_OFF(Veh, 2, false)
+							VEHICLE.SET_VEHICLE_DOOR_CONTROL(Veh, 2, 180.0, 180.0)
+							if not VEHICLE.IS_VEHICLE_DOOR_DAMAGED(Veh, 4) then
+								VEHICLE.SET_VEHICLE_DOOR_BROKEN(Veh, 4, false)
+							end
+						end
+						--VEHICLE.SET_VEHICLE_IS_RACING(Veh, true)
+						local Steering = ReplayVehsT[k].Paths[ReplayVehsT[k].Index].Steering
+						--VEHICLE.SET_VEHICLE_STEER_BIAS(Veh, Steering)
+						if ReplayVehsT[k].PedHandle ~= 0 and ENTITY.DOES_ENTITY_EXIST(ReplayVehsT[k].PedHandle) then
+							PED.SET_DRIVER_RACING_MODIFIER(ReplayVehsT[k].PedHandle, 1.0)
+							if GameTimer > ReplayVehsT[k].SteerMilis+1000 then
+								ReplayVehsT[k].SteerMilis = GameTimer
+								local Offset = ENTITY.GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS(Veh, -Steering * 3.0, 0.0, 0.0)
+								TASK.TASK_VEHICLE_DRIVE_TO_COORD(ReplayVehsT[k].PedHandle, Veh, Offset.x, Offset.y, Offset.z, 180.0, 1, ENTITY.GET_ENTITY_MODEL(Veh), 1, 0.01, 40000.0)
+							else
+								ReplayVehsT[k].SteerMilis = 0
+							end
+						end
+						if not IsRewinding then
+							if not ReplayTeleportMode then
+								SetEntitySpeedToCoord(Veh, Coord, 1.0,
+								false, false, false, Vel.x, Vel.y, Vel.z, false, false, nil)
+								RotateEntityToTargetRotation(Veh, Rot, 10.0)
+							else
+								ENTITY.SET_ENTITY_COORDS_NO_OFFSET(Veh, Coord.x, Coord.y, Coord.z)
+								ENTITY.SET_ENTITY_ROTATION(Veh, Rot.x, Rot.y, Rot.z, 5)
+								ENTITY.SET_ENTITY_VELOCITY(Veh, Vel.x, Vel.y, Vel.z)
+								ENTITY.SET_ENTITY_ANGULAR_VELOCITY(Veh, AngVel.x, AngVel.y, AngVel.z)
+							end
+						else
+							ENTITY.SET_ENTITY_COORDS_NO_OFFSET(Veh, Coord.x, Coord.y, Coord.z)
+							ENTITY.SET_ENTITY_ROTATION(Veh, Rot.x, Rot.y, Rot.z, 5)
+							ENTITY.SET_ENTITY_VELOCITY(Veh, Vel.x, Vel.y, Vel.z)
+							ENTITY.SET_ENTITY_ANGULAR_VELOCITY(Veh, AngVel.x, AngVel.y, AngVel.z)
+						end
+					else
+						ReplayVehsT[k].Index = 0
+						--ReplayVehsT[k].StartTimer = GameTimer
+						--StartTimer = GameTimer
+					end
+				end
+			end
+			if WaitWasEnabled then
+				local PVeh = PED.GET_VEHICLE_PED_IS_IN(PLAYER.PLAYER_PED_ID(), true)
+				if PVeh ~= 0 then
+					if LastEnt == 0 then
+						LastEnt = ENTITY._GET_LAST_ENTITY_HIT_BY_ENTITY(PVeh)
+					end
+					if LastEnt ~= 0 then
+						local CurVel = ENTITY.GET_ENTITY_VELOCITY(LastEnt)
+						ENTITY.SET_ENTITY_VELOCITY(PVeh, CurVel.x, CurVel.y, CurVel.z)
+						WaitWasEnabled = false
+					end
+				end
+			end
+			Wait()
+        end
+
+        -- Salvar no final
+        local BigText = table.concat(RecordT)
+        WriteFile(PathDirSaveds..FileNameForSave..".txt", BigText)
+        RecordT = {}
+	else
+		for k = 1, #ReplayVehsT do
+			if ReplayVehsT[k].VehHandle ~= 0 and ENTITY.DOES_ENTITY_EXIST(ReplayVehsT[k].VehHandle) then
+				if ReplayVehsT[k].Blip ~= 0 then
+					util.remove_blip(ReplayVehsT[k].Blip)
+				end
+				entities.delete_by_handle(ReplayVehsT[k].VehHandle)
+			end
+			if ReplayVehsT[k].PedHandle ~= 0 and ENTITY.DOES_ENTITY_EXIST(ReplayVehsT[k].PedHandle) then
+				if ReplayVehsT[k].PedBlip ~= 0 then
+					util.remove_blip(ReplayVehsT[k].PedBlip)
+				end
+				entities.delete_by_handle(ReplayVehsT[k].PedHandle)
+			end
+		end
+		ReplayVehsT = {}
+	end
+end)
+
+function UpdateReplayIndexByTime(vehicleReplay)
+    local Paths = vehicleReplay.Paths
+    local StartFrameTime = Paths[1].CurGameTime
+
+    -- Atualiza o índice com base no GlobalReplayTime
+    while vehicleReplay.Index < (#Paths - 1) and 
+          GlobalReplayTime > (Paths[vehicleReplay.Index + 1].CurGameTime - StartFrameTime) do
+        vehicleReplay.Index = vehicleReplay.Index + 1
+    end
+
+    while vehicleReplay.Index > 1 and 
+          GlobalReplayTime < (Paths[vehicleReplay.Index].CurGameTime - StartFrameTime) do
+        vehicleReplay.Index = vehicleReplay.Index - 1
+    end
+end
+
 
 menu.toggle(SoloRecordingMenu, "Wait Before Start Replay", {}, "", function(toggle)
 	WaitBeforeStartReplay = toggle
@@ -3573,6 +3971,24 @@ function GetVectorsTable(fileName, delayLoad, getOnlyFirstData)
     end
 
     return vectorTable
+end
+
+function GetVectorsFromIndex(Txts)
+	local Vectors = nil
+	for line in Txts:gmatch("[^\r\n]+") do -- Divide manualmente por linhas
+        local numbers = {}
+        for n in line:gmatch("%S+") do -- Divide por espaços
+            numbers[#numbers + 1] = tonumber(n)
+        end
+        Vectors = {
+            x = numbers[1], y = numbers[2], z = numbers[3],
+            RotX = numbers[4], RotY = numbers[5], RotZ = numbers[6],
+            VelX = numbers[7], VelY = numbers[8], VelZ = numbers[9],
+            AngVelX = numbers[10], AngVelY = numbers[11], AngVelZ = numbers[12],
+            CurGameTime = numbers[13], ModelHash = numbers[14], Steering = numbers[15] or 0.0
+        }
+	end
+	return Vectors
 end
 
 function QuaternionToEulerOrder(x, y, z, w, order)
